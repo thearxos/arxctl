@@ -1,0 +1,146 @@
+#!/usr/bin/env bash
+# arxctl - ARXOS control center
+# A clean TUI to manage the system: updates, CachyOS kernels, performance,
+# tor privacy, services, wallpapers and info. (ARXOS' answer to cachyos-hello.)
+
+GB=$'\033[1;38;5;220m'; CB=$'\033[1;38;5;45m'; C=$'\033[38;5;45m'
+GR=$'\033[1;32m'; RD=$'\033[1;31m'; DM=$'\033[90m'; BD=$'\033[1m'; RS=$'\033[0m'
+
+_os(){ ( . /etc/os-release 2>/dev/null; echo "${PRETTY_NAME:-ARXOS}" ); }
+_gov(){ cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null || echo "n/a"; }
+_tor(){ pgrep -x tor >/dev/null 2>&1 && echo "${GR}on${RS}" || echo "${DM}off${RS}"; }
+_mem(){ awk '/MemTotal/{t=$2}/MemAvailable/{a=$2}END{printf "%d / %d MB", (t-a)/1024, t/1024}' /proc/meminfo 2>/dev/null; }
+_pause(){ printf "\n  ${DM}press enter${RS} "; read -r _; }
+
+_header(){
+  clear
+  printf "\n  ${GB}ARX${CB}OS${RS} ${DM}control center${RS}\n"
+  printf "  ${DM}------------------------------------------${RS}\n"
+  printf "   ${DM}%-8s${RS}%s\n" "system" "$(_os)"
+  printf "   ${DM}%-8s${RS}%s\n" "kernel" "$(uname -r)"
+  printf "   ${DM}%-8s${RS}%s\n" "cpu" "$(_gov)"
+  printf "   ${DM}%-8s${RS}%s\n" "memory" "$(_mem)"
+  printf "   ${DM}%-8s${RS}%b\n" "tor" "$(_tor)"
+  printf "  ${DM}------------------------------------------${RS}\n\n"
+}
+
+_menu(){
+  printf "   ${CB}1${RS}  update system\n"
+  printf "   ${CB}2${RS}  kernels       ${DM}install / switch${RS}\n"
+  printf "   ${CB}3${RS}  performance   ${DM}cpu governor${RS}\n"
+  printf "   ${CB}4${RS}  privacy       ${DM}tor routing${RS}\n"
+  printf "   ${CB}5${RS}  services      ${DM}enable / disable${RS}\n"
+  printf "   ${CB}6${RS}  wallpaper     ${DM}wallpimp${RS}\n"
+  printf "   ${CB}7${RS}  system info\n"
+  printf "   ${CB}q${RS}  quit\n\n"
+  printf "  ${BD}>${RS} "
+}
+
+act_update(){ if command -v arx >/dev/null 2>&1; then arx update; else sudo pacman -Syu; fi; _pause; }
+
+# Configure the CachyOS repository via its official installer (idempotent).
+_ensure_cachyos(){
+  grep -q '^\[cachyos' /etc/pacman.conf 2>/dev/null && return 0
+  printf "  ${DM}configuring CachyOS repository (official installer)...${RS}\n"
+  local t; t=$(mktemp -d)
+  if curl -fsSL https://mirror.cachyos.org/cachyos-repo.tar.xz -o "$t/c.tar.xz" 2>/dev/null \
+     && tar xf "$t/c.tar.xz" -C "$t" 2>/dev/null; then
+    ( cd "$t"/cachyos-repo* 2>/dev/null && sudo ./cachyos-repo.sh )
+  else
+    printf "  ${RD}xx${RS} could not reach the CachyOS mirror\n"; rm -rf "$t"; return 1
+  fi
+  rm -rf "$t"
+}
+
+act_kernels(){
+  clear
+  printf "\n  ${GB}kernels${RS}   ${DM}current:${RS} %s\n\n" "$(uname -r)"
+  printf "  ${DM}installed:${RS}\n"
+  pacman -Q 2>/dev/null | awk -v C="$C" -v R="$RS" \
+    '$1 ~ /^linux(-(lts|zen|hardened|cachyos|cachyos-lts|cachyos-rt-bore|rt-bore|xanmod|surface|rt))?$/ {print "    " C $1 R "  " $2}'
+  printf "\n  ${DM}performance kernels:${RS}\n"
+  printf "   ${CB}1${RS}  cachyos-rt-bore   ${DM}realtime BORE   (default)${RS}\n"
+  printf "   ${CB}2${RS}  cachyos           ${DM}BORE-EEVDF, optimized${RS}\n"
+  printf "   ${CB}3${RS}  cachyos-lts       ${DM}long-term support${RS}\n"
+  printf "   ${CB}4${RS}  zen               ${DM}linux-zen${RS}\n"
+  printf "   ${CB}5${RS}  hardened          ${DM}linux-hardened${RS}\n"
+  printf "   ${CB}enter${RS} back\n  ${BD}>${RS} "
+  read -r k
+  case "$k" in
+    1) _ensure_cachyos && arx install linux-cachyos-rt-bore linux-cachyos-rt-bore-headers ;;
+    2) _ensure_cachyos && arx install linux-cachyos linux-cachyos-headers ;;
+    3) _ensure_cachyos && arx install linux-cachyos-lts linux-cachyos-lts-headers ;;
+    4) arx install linux-zen linux-zen-headers ;;
+    5) arx install linux-hardened linux-hardened-headers ;;
+    *) return ;;
+  esac
+  _pause
+}
+
+act_perf(){
+  clear
+  printf "\n  ${GB}performance${RS}   ${DM}governor:${RS} %s\n\n" "$(_gov)"
+  printf "  ${CB}p${RS} performance   ${CB}s${RS} powersave   ${CB}enter${RS} back\n  ${BD}>${RS} "
+  read -r g
+  local want=""
+  case "$g" in p) want=performance ;; s) want=powersave ;; *) return ;; esac
+  if   command -v cpu-governor >/dev/null 2>&1; then sudo cpu-governor "$want"
+  elif command -v cpupower    >/dev/null 2>&1; then sudo cpupower frequency-set -g "$want" >/dev/null
+  else for c in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo "$want" | sudo tee "$c" >/dev/null; done
+  fi
+  printf "  ${GR}governor set to %s${RS}\n" "$want"; _pause
+}
+
+act_tor(){
+  clear
+  printf "\n  ${GB}privacy / tor${RS}   ${DM}status:${RS} %b\n\n" "$(_tor)"
+  if ! command -v t0rpoiz0n >/dev/null 2>&1; then
+    printf "  ${DM}t0rpoiz0n not installed (ships in the ARXOS ISO)${RS}\n"; _pause; return
+  fi
+  printf "  ${CB}o${RS} route through tor   ${CB}x${RS} stop   ${CB}r${RS} new circuit   ${CB}enter${RS} back\n  ${BD}>${RS} "
+  read -r t
+  case "$t" in o) sudo t0rpoiz0n -s ;; x) sudo t0rpoiz0n -k ;; r) sudo t0rpoiz0n -r ;; *) return ;; esac
+  _pause
+}
+
+act_services(){
+  clear
+  printf "\n  ${GB}services${RS}\n\n"
+  local svcs=(sshd NetworkManager bluetooth cronie tor docker libvirtd)
+  local i=1 s st
+  for s in "${svcs[@]}"; do
+    st=$(systemctl is-enabled "$s" 2>/dev/null); [ -z "$st" ] && st="-"
+    case "$st" in enabled) st="${GR}enabled${RS}" ;; disabled) st="${DM}disabled${RS}" ;; *) st="${DM}$st${RS}" ;; esac
+    printf "   ${CB}%d${RS}  %-16s %b\n" "$i" "$s" "$st"; ((i++))
+  done
+  printf "\n  ${DM}toggle by number${RS}   ${CB}enter${RS} back\n  ${BD}>${RS} "
+  read -r n
+  if [[ "$n" =~ ^[0-9]+$ ]] && [ "$n" -ge 1 ] && [ "$n" -le ${#svcs[@]} ]; then
+    s="${svcs[$((n-1))]}"
+    if systemctl is-enabled "$s" >/dev/null 2>&1; then sudo systemctl disable --now "$s"
+    else sudo systemctl enable --now "$s"; fi
+    _pause
+  fi
+}
+
+act_wall(){
+  if command -v wallpimp >/dev/null 2>&1; then wallpimp >/dev/null 2>&1 &
+  else clear; printf "\n  ${DM}wallpimp not installed (ships in the ARXOS ISO)${RS}\n"; _pause; fi
+}
+
+act_info(){
+  clear
+  if command -v fastfetch >/dev/null 2>&1; then fastfetch
+  elif command -v myfastfetch >/dev/null 2>&1; then myfastfetch
+  else printf "\n"; uname -a; fi
+  _pause
+}
+
+while true; do
+  _header; _menu; read -r ch
+  case "$ch" in
+    1) act_update ;; 2) act_kernels ;; 3) act_perf ;; 4) act_tor ;;
+    5) act_services ;; 6) act_wall ;; 7) act_info ;;
+    q|Q|"") clear; break ;;
+  esac
+done
