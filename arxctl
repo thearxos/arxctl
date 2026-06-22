@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # arxctl - ARXOS control center
 # A clean TUI to manage the system: updates, CachyOS kernels, performance,
-# tor privacy, services, wallpapers and info. (ARXOS' answer to cachyos-hello.)
+# tor privacy, services, wallpapers and info. — ARXOS native
 
 GB=$'\033[1;38;5;220m'; CB=$'\033[1;38;5;45m'; C=$'\033[38;5;45m'
 GR=$'\033[1;32m'; RD=$'\033[1;31m'; DM=$'\033[90m'; BD=$'\033[1m'; RS=$'\033[0m'
