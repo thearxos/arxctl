@@ -140,7 +140,7 @@ class ArxCtl(Gtk.Window):
         b.add(box); return b
 
     def perf(self, *_):
-        d, a = self._dialog("Performance", 430, 380)
+        d, a = self._dialog("Performance", 440, 480)
         cur = sh("cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor")
         model = sh("LANG=C lscpu 2>/dev/null | sed -n 's/Model name: *//p' | head -1")
         h = Gtk.Label(); h.set_markup("<b>%s</b>" % (model or "CPU")); h.set_xalign(0); h.set_line_wrap(True); a.pack_start(h, False, False, 2)
@@ -149,6 +149,12 @@ class ArxCtl(Gtk.Window):
         sub.set_xalign(0); sub.get_style_context().add_class("statlabel"); a.pack_start(sub, False, False, 0)
         sep = Gtk.Box(); sep.get_style_context().add_class("sep"); sep.set_margin_top(8); sep.set_margin_bottom(6); a.pack_start(sep, False, False, 0)
         gl = Gtk.Label(label="CPU GOVERNOR"); gl.set_xalign(0); gl.get_style_context().add_class("statlabel"); a.pack_start(gl, False, False, 0)
+        govdesc = {"performance":"max clocks always — fastest, highest power draw",
+                   "powersave":"minimum clocks — coolest, best battery life",
+                   "ondemand":"ramps up fast under load, idles back down",
+                   "schedutil":"kernel-scheduler driven — balanced modern default",
+                   "conservative":"ramps up gradually — gentler than ondemand",
+                   "userspace":"frequency set manually by userspace"}
         govs = sh("cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_available_governors").split() or ["performance","schedutil","ondemand","conservative","powersave"]
         grp = None
         for g in govs:
@@ -156,6 +162,9 @@ class ArxCtl(Gtk.Window):
             rb.set_active(g == cur)
             rb.connect("toggled", (lambda gg: lambda b: b.get_active() and priv("command -v cpupower >/dev/null && cpupower frequency-set -g %s || for c in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo %s > \"$c\"; done" % (gg, gg)))(g))
             a.pack_start(rb, False, False, 0)
+            dsc = govdesc.get(g)
+            if dsc:
+                dl = Gtk.Label(label=dsc); dl.set_xalign(0); dl.set_margin_start(26); dl.set_margin_bottom(5); dl.get_style_context().add_class("statlabel"); a.pack_start(dl, False, False, 0)
         boost = "/sys/devices/system/cpu/cpufreq/boost"
         if sh("test -f %s && echo y" % boost) == "y":
             s2 = Gtk.Box(); s2.get_style_context().add_class("sep"); s2.set_margin_top(6); s2.set_margin_bottom(6); a.pack_start(s2, False, False, 0)
