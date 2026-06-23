@@ -140,9 +140,31 @@ class ArxCtl(Gtk.Window):
         b.add(box); return b
 
     def perf(self, *_):
+        d, a = self._dialog("Performance", 430, 380)
         cur = sh("cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor")
-        want = "powersave" if cur == "performance" else "performance"
-        priv("cpu-governor %s 2>/dev/null || for c in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo %s > \"$c\"; done" % (want, want))
+        model = sh("LANG=C lscpu 2>/dev/null | sed -n 's/Model name: *//p' | head -1")
+        h = Gtk.Label(); h.set_markup("<b>%s</b>" % (model or "CPU")); h.set_xalign(0); h.set_line_wrap(True); a.pack_start(h, False, False, 2)
+        mhz = sh("LANG=C lscpu 2>/dev/null|sed -n 's/CPU max MHz: *//p'|head -1")
+        sub = Gtk.Label(label="%s threads%s · governor: %s" % (sh("nproc"), ("  ·  %s MHz max" % mhz.split(".")[0]) if mhz else "", cur or "n/a"))
+        sub.set_xalign(0); sub.get_style_context().add_class("statlabel"); a.pack_start(sub, False, False, 0)
+        sep = Gtk.Box(); sep.get_style_context().add_class("sep"); sep.set_margin_top(8); sep.set_margin_bottom(6); a.pack_start(sep, False, False, 0)
+        gl = Gtk.Label(label="CPU GOVERNOR"); gl.set_xalign(0); gl.get_style_context().add_class("statlabel"); a.pack_start(gl, False, False, 0)
+        govs = sh("cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_available_governors").split() or ["performance","schedutil","ondemand","conservative","powersave"]
+        grp = None
+        for g in govs:
+            rb = Gtk.RadioButton.new_with_label_from_widget(grp, g); grp = grp or rb
+            rb.set_active(g == cur)
+            rb.connect("toggled", (lambda gg: lambda b: b.get_active() and priv("command -v cpupower >/dev/null && cpupower frequency-set -g %s || for c in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo %s > \"$c\"; done" % (gg, gg)))(g))
+            a.pack_start(rb, False, False, 0)
+        boost = "/sys/devices/system/cpu/cpufreq/boost"
+        if sh("test -f %s && echo y" % boost) == "y":
+            s2 = Gtk.Box(); s2.get_style_context().add_class("sep"); s2.set_margin_top(6); s2.set_margin_bottom(6); a.pack_start(s2, False, False, 0)
+            hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            bl = Gtk.Label(label="Turbo boost"); bl.set_xalign(0); bl.get_style_context().add_class("krow"); hb.pack_start(bl, True, True, 0)
+            bsw = Gtk.Switch(); bsw.set_active(sh("cat " + boost) == "1"); bsw.set_valign(Gtk.Align.CENTER)
+            bsw.connect("notify::active", lambda s, _g: priv("echo %d > %s" % (1 if s.get_active() else 0, boost)))
+            hb.pack_start(bsw, False, False, 0); a.pack_start(hb, False, False, 0)
+        d.show_all(); d.run(); d.destroy()
 
     def wallpaper(self, *_):
         if sh("command -v wallpimp"): bg("wallpimp")
@@ -282,4 +304,8 @@ echo "Tor:       $(pgrep -x tor >/dev/null && echo 'routing through Tor' || echo
         return True
 
 if __name__ == "__main__":
-    w = ArxCtl(); w.connect("destroy", Gtk.main_quit); w.show_all(); Gtk.main()
+    import sys
+    w = ArxCtl(); w.connect("destroy", Gtk.main_quit); w.show_all()
+    if len(sys.argv) > 1 and sys.argv[1] in ("kernels", "services", "sysinfo", "perf", "snapshots"):
+        GLib.timeout_add(700, lambda: (getattr(w, sys.argv[1])(), False)[1])
+    Gtk.main()
