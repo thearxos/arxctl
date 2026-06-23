@@ -1,0 +1,107 @@
+#!/usr/bin/env python3
+# arxctl-gui — ARXOS Control Center (GTK3), styled to the ARXOS Claude Design.
+import gi, subprocess
+gi.require_version('Gtk', '3.0')
+from gi.repository import Gtk, Gdk, GLib
+
+CSS = b"""
+window { background:#08080a; }
+.title  { font-family:'Playfair Display',serif; font-style:italic; font-size:27px; color:#ffffff; }
+.subtitle { color:#7a7a80; font-size:11px; }
+.statlabel { color:#66666c; font-size:11px; }
+.statvalue { color:#e8e8ea; font-size:13px; font-weight:600; }
+.statvalue.on { color:#5fd17a; }
+.card { background:rgba(255,255,255,0.035); border:1px solid rgba(255,255,255,0.10); border-radius:14px; }
+.card:hover { background:rgba(232,112,42,0.10); border:1px solid rgba(232,112,42,0.48); }
+.cardtitle { color:#ffffff; font-size:14px; font-weight:600; }
+.cardsub { color:#86868c; font-size:11px; }
+.sep { background:rgba(255,255,255,0.08); min-height:1px; }
+button.card { padding:0; }
+"""
+
+def sh(c):
+    try: return subprocess.check_output(c, shell=True, text=True, stderr=subprocess.DEVNULL).strip()
+    except Exception: return ""
+
+def term(cmd):
+    for t in ("konsole","xfce4-terminal","x-terminal-emulator","alacritty","xterm"):
+        if sh("command -v "+t):
+            flag = "-e" if t!="xfce4-terminal" else "-x"
+            try: subprocess.Popen([t, flag, "bash","-lc",cmd]);
+            except Exception: subprocess.Popen([t,"-e","bash","-lc",cmd])
+            return
+
+def bg(cmd): subprocess.Popen(cmd, shell=True)
+
+class ArxCtl(Gtk.Window):
+    def __init__(self):
+        super().__init__(title="ARXOS Control Center")
+        self.set_default_size(470, 660); self.set_resizable(False)
+        try: self.set_icon_name("preferences-system")
+        except Exception: pass
+        p = Gtk.CssProvider(); p.load_from_data(CSS)
+        Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), p, Gtk.STYLE_PROVIDER_PRIORITY_USER)
+
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        for m in ("set_margin_top","set_margin_bottom","set_margin_start","set_margin_end"): getattr(root,m)(24)
+        self.add(root)
+
+        ttl = Gtk.Label(); ttl.set_markup("<span font='27'>ARX<span foreground='#e8702a'>OS</span></span>")
+        ttl.set_xalign(0); ttl.get_style_context().add_class("title"); root.pack_start(ttl, False, False, 0)
+        sub = Gtk.Label(label="CONTROL CENTER"); sub.set_xalign(0)
+        sub.get_style_context().add_class("subtitle"); root.pack_start(sub, False, False, 0)
+
+        self.vals = {}
+        sg = Gtk.Grid(column_spacing=12, row_spacing=7); sg.set_margin_top(10)
+        for i,k in enumerate(("kernel","cpu","memory","tor")):
+            l = Gtk.Label(label=k); l.set_xalign(0); l.set_size_request(72,-1); l.get_style_context().add_class("statlabel")
+            v = Gtk.Label(label="…"); v.set_xalign(0); v.get_style_context().add_class("statvalue")
+            sg.attach(l,0,i,1,1); sg.attach(v,1,i,1,1); self.vals[k]=v
+        root.pack_start(sg, False, False, 0)
+
+        sep = Gtk.Box(); sep.get_style_context().add_class("sep"); sep.set_margin_top(8); sep.set_margin_bottom(2)
+        root.pack_start(sep, False, False, 0)
+
+        grid = Gtk.Grid(column_spacing=12, row_spacing=12, column_homogeneous=True)
+        root.pack_start(grid, True, True, 6)
+        cards = [
+            ("system-software-update","Update","system upgrade", lambda *_: term("arx update; echo; read -rp 'done — enter…'")),
+            ("computer","Kernels","install / switch", lambda *_: term("arxctl")),
+            ("applications-system","Performance","cpu governor", self.perf),
+            ("security-high","Privacy","tor routing", lambda *_: bg("t0r-gui 2>/dev/null || x-terminal-emulator -e t0rctl")),
+            ("preferences-system","Services","enable / disable", lambda *_: term("arxctl")),
+            ("preferences-desktop-wallpaper","Wallpaper","slideshow", lambda *_: bg("wallpimp")),
+            ("dialog-information","System Info","fastfetch", lambda *_: term("fastfetch 2>/dev/null || myfastfetch 2>/dev/null || uname -a; echo; read -rp '…'")),
+            ("view-refresh","Self-update","pull ARXOS tools", lambda *_: term("arxupd; echo; read -rp '…'")),
+        ]
+        for i,(ic,ti,su,cb) in enumerate(cards):
+            b = self._card(ic,ti,su); b.connect("clicked", cb); grid.attach(b, i%2, i//2, 1, 1)
+
+        self.refresh(); GLib.timeout_add_seconds(4, self.refresh)
+
+    def _card(self, icon, title, subt):
+        b = Gtk.Button(); b.get_style_context().add_class("card")
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_margin_top(16); box.set_margin_bottom(16)
+        img = Gtk.Image.new_from_icon_name(icon, Gtk.IconSize.DND); img.set_pixel_size(30)
+        t = Gtk.Label(label=title); t.get_style_context().add_class("cardtitle")
+        s = Gtk.Label(label=subt); s.get_style_context().add_class("cardsub")
+        for w in (img,t,s): box.pack_start(w, False, False, 0)
+        b.add(box); return b
+
+    def perf(self, *_):
+        cur = sh("cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor")
+        want = "powersave" if cur == "performance" else "performance"
+        bg("pkexec cpu-governor %s 2>/dev/null || pkexec bash -c 'for c in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo %s > \"$c\"; done'" % (want, want))
+
+    def refresh(self):
+        self.vals["kernel"].set_text(sh("uname -r") or "?")
+        self.vals["cpu"].set_text(sh("cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor") or "n/a")
+        self.vals["memory"].set_text(sh("free -m | awk '/Mem:/{printf \"%d / %d MB\", $3, $2}'") or "?")
+        on = sh("pgrep -x tor") != ""
+        tv = self.vals["tor"]; tv.set_text("routing through tor" if on else "off")
+        (tv.get_style_context().add_class if on else tv.get_style_context().remove_class)("on")
+        return True
+
+if __name__ == "__main__":
+    w = ArxCtl(); w.connect("destroy", Gtk.main_quit); w.show_all(); Gtk.main()
