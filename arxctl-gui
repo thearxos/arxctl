@@ -1,21 +1,24 @@
 #!/usr/bin/env python3
-# arxctl-gui — ARXOS Control Center (GTK3), styled to the ARXOS Claude Design.
-import gi, subprocess
+# arxctl-gui — ARXOS Control Center (GTK3). Fully GUI; styled to the ARXOS design.
+import gi, subprocess, time, os, threading
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, Gdk, GLib
 
 CSS = b"""
-window { background:#08080a; }
-.title  { font-family:'Playfair Display',serif; font-style:italic; font-size:27px; color:#ffffff; }
-.subtitle { color:#7a7a80; font-size:11px; }
-.statlabel { color:#66666c; font-size:11px; }
-.statvalue { color:#e8e8ea; font-size:13px; font-weight:600; }
+window, dialog { background:#08080a; }
+.title  { font-family:'Playfair Display',serif; font-style:italic; font-size:23px; color:#ffffff; }
+.subtitle { color:#7a7a80; font-size:10px; }
+.statlabel { color:#66666c; font-size:10px; }
+.statvalue { color:#e8e8ea; font-size:12px; font-weight:600; }
 .statvalue.on { color:#5fd17a; }
-.card { background:rgba(255,255,255,0.035); border:1px solid rgba(255,255,255,0.10); border-radius:14px; }
-.card:hover { background:rgba(232,112,42,0.10); border:1px solid rgba(232,112,42,0.48); }
-.cardtitle { color:#ffffff; font-size:14px; font-weight:600; }
-.cardsub { color:#86868c; font-size:11px; }
+.statvalue.warn { color:#e8702a; }
+.card { background:rgba(255,255,255,0.035); border:1px solid rgba(255,255,255,0.10); border-radius:12px; }
+.card:hover { background:rgba(232,112,42,0.11); border:1px solid rgba(232,112,42,0.5); }
+.cardtitle { color:#ffffff; font-size:12px; font-weight:600; }
 .sep { background:rgba(255,255,255,0.08); min-height:1px; }
+.mono { font-family:'JetBrains Mono',monospace; font-size:11px; color:#cfd2d6; }
+.krow { color:#e8e8ea; font-size:13px; }
+.krun { color:#5fd17a; font-weight:700; }
 button.card { padding:0; }
 """
 
@@ -26,81 +29,223 @@ def sh(c):
 def term(cmd):
     for t in ("konsole","xfce4-terminal","x-terminal-emulator","alacritty","xterm"):
         if sh("command -v "+t):
-            flag = "-e" if t!="xfce4-terminal" else "-x"
-            try: subprocess.Popen([t, flag, "bash","-lc",cmd]);
-            except Exception: subprocess.Popen([t,"-e","bash","-lc",cmd])
-            return
+            f = "-x" if t == "xfce4-terminal" else "-e"
+            try: subprocess.Popen([t, f, "bash","-lc",cmd]); return
+            except Exception: pass
 
 def bg(cmd): subprocess.Popen(cmd, shell=True)
+
+def priv(cmd):
+    if sh("pgrep -f polkit.*authentication-agent"): bg("pkexec bash -lc " + repr(cmd))
+    else: term("sudo " + cmd + "; echo; read -rp 'done — enter…'")
+
+_prev = [0, 0]
+def cpu_pct():
+    try:
+        with open('/proc/stat') as f: v = list(map(int, f.readline().split()[1:]))
+        idle = v[3] + (v[4] if len(v) > 4 else 0); total = sum(v)
+        di = idle - _prev[0]; dt = total - _prev[1]; _prev[0] = idle; _prev[1] = total
+        return None if dt <= 0 else max(0, min(100, round((1 - di/dt) * 100)))
+    except Exception: return None
+
+def last_mod():
+    try:
+        d = time.time() - os.path.getmtime('/var/lib/pacman/local')
+        if d < 90: return "just now"
+        if d < 3600: return "%dm ago" % (d/60)
+        if d < 86400: return "%dh ago" % (d/3600)
+        return "%dd ago" % (d/86400)
+    except Exception: return "?"
+
+UPD = "/tmp/.arxctl_updates"
+def check_updates():
+    def run():
+        n = sh("(checkupdates 2>/dev/null; (command -v yay >/dev/null && yay -Qua 2>/dev/null)) | wc -l")
+        try: open(UPD,"w").write(n or "0")
+        except Exception: pass
+    threading.Thread(target=run, daemon=True).start()
+def updates_count():
+    try: return int(open(UPD).read().strip())
+    except Exception: return None
+
+KERNELS = ["linux", "linux-zen", "linux-lts", "linux-hardened"]
+SERVICES = ["NetworkManager","sshd","bluetooth","cups","firewalld","docker","tor-t0rpoiz0n","systemd-timesyncd"]
 
 class ArxCtl(Gtk.Window):
     def __init__(self):
         super().__init__(title="ARXOS Control Center")
-        self.set_default_size(470, 660); self.set_resizable(False)
+        self.set_default_size(440, 530); self.set_resizable(False)
         try: self.set_icon_name("preferences-system")
         except Exception: pass
         p = Gtk.CssProvider(); p.load_from_data(CSS)
         Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), p, Gtk.STYLE_PROVIDER_PRIORITY_USER)
-
-        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        for m in ("set_margin_top","set_margin_bottom","set_margin_start","set_margin_end"): getattr(root,m)(24)
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        for m in ("set_margin_top","set_margin_bottom","set_margin_start","set_margin_end"): getattr(root, m)(18)
         self.add(root)
-
-        ttl = Gtk.Label(); ttl.set_markup("<span font='27'>ARX<span foreground='#e8702a'>OS</span></span>")
+        ttl = Gtk.Label(); ttl.set_markup("<span font='23'>ARX<span foreground='#e8702a'>OS</span></span>")
         ttl.set_xalign(0); ttl.get_style_context().add_class("title"); root.pack_start(ttl, False, False, 0)
         sub = Gtk.Label(label="CONTROL CENTER"); sub.set_xalign(0)
         sub.get_style_context().add_class("subtitle"); root.pack_start(sub, False, False, 0)
-
         self.vals = {}
-        sg = Gtk.Grid(column_spacing=12, row_spacing=7); sg.set_margin_top(10)
-        for i,k in enumerate(("kernel","cpu","memory","tor")):
-            l = Gtk.Label(label=k); l.set_xalign(0); l.set_size_request(72,-1); l.get_style_context().add_class("statlabel")
+        sg = Gtk.Grid(column_spacing=12, row_spacing=5); sg.set_margin_top(8)
+        for i, k in enumerate(("kernel","cpu","memory","tor","updated","updates")):
+            l = Gtk.Label(label=k); l.set_xalign(0); l.set_size_request(64,-1); l.get_style_context().add_class("statlabel")
             v = Gtk.Label(label="…"); v.set_xalign(0); v.get_style_context().add_class("statvalue")
-            sg.attach(l,0,i,1,1); sg.attach(v,1,i,1,1); self.vals[k]=v
+            sg.attach(l,0,i,1,1); sg.attach(v,1,i,1,1); self.vals[k] = v
         root.pack_start(sg, False, False, 0)
-
         sep = Gtk.Box(); sep.get_style_context().add_class("sep"); sep.set_margin_top(8); sep.set_margin_bottom(2)
         root.pack_start(sep, False, False, 0)
-
-        grid = Gtk.Grid(column_spacing=12, row_spacing=12, column_homogeneous=True)
-        root.pack_start(grid, True, True, 6)
+        grid = Gtk.Grid(column_spacing=10, row_spacing=10, column_homogeneous=True, row_homogeneous=True)
+        root.pack_start(grid, True, True, 4)
         cards = [
-            ("system-software-update","Update","system upgrade", lambda *_: term("arx update; echo; read -rp 'done — enter…'")),
-            ("computer","Kernels","install / switch", lambda *_: term("arxctl")),
-            ("applications-system","Performance","cpu governor", self.perf),
-            ("security-high","Privacy","tor routing", lambda *_: bg("t0r-gui 2>/dev/null || x-terminal-emulator -e t0rctl")),
-            ("preferences-system","Services","enable / disable", lambda *_: term("arxctl")),
-            ("preferences-desktop-wallpaper","Wallpaper","slideshow", lambda *_: bg("wallpimp")),
-            ("dialog-information","System Info","fastfetch", lambda *_: term("fastfetch 2>/dev/null || myfastfetch 2>/dev/null || uname -a; echo; read -rp '…'")),
-            ("view-refresh","Self-update","pull ARXOS tools", lambda *_: term("arxupd; echo; read -rp '…'")),
+            ("system-software-update","Update", lambda *_: term("arx update; echo; read -rp 'done — enter…'")),
+            ("computer","Kernels", self.kernels),
+            ("applications-system","Performance", self.perf),
+            ("security-high","Privacy", lambda *_: bg("t0r-gui 2>/dev/null || x-terminal-emulator -e t0rctl")),
+            ("document-save","Snapshots", self.snapshots),
+            ("preferences-system","Services", self.services),
+            ("preferences-desktop-wallpaper","Wallpaper", self.wallpaper),
+            ("dialog-information","Info", self.sysinfo),
+            ("view-refresh","Self-update", lambda *_: term("arxupd; echo; read -rp '…'")),
         ]
-        for i,(ic,ti,su,cb) in enumerate(cards):
-            b = self._card(ic,ti,su); b.connect("clicked", cb); grid.attach(b, i%2, i//2, 1, 1)
+        for i, (ic, ti, cb) in enumerate(cards):
+            b = self._card(ic, ti); b.connect("clicked", cb); grid.attach(b, i % 3, i // 3, 1, 1)
+        check_updates(); self.refresh(); GLib.timeout_add_seconds(2, self.refresh)
+        GLib.timeout_add_seconds(900, lambda: (check_updates(), True)[1])
 
-        self.refresh(); GLib.timeout_add_seconds(4, self.refresh)
-
-    def _card(self, icon, title, subt):
+    def _card(self, icon, title):
         b = Gtk.Button(); b.get_style_context().add_class("card")
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        box.set_margin_top(16); box.set_margin_bottom(16)
-        img = Gtk.Image.new_from_icon_name(icon, Gtk.IconSize.DND); img.set_pixel_size(30)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+        box.set_margin_top(12); box.set_margin_bottom(12)
+        img = Gtk.Image.new_from_icon_name(icon, Gtk.IconSize.DND); img.set_pixel_size(26)
         t = Gtk.Label(label=title); t.get_style_context().add_class("cardtitle")
-        s = Gtk.Label(label=subt); s.get_style_context().add_class("cardsub")
-        for w in (img,t,s): box.pack_start(w, False, False, 0)
+        box.pack_start(img, False, False, 0); box.pack_start(t, False, False, 0)
         b.add(box); return b
 
     def perf(self, *_):
         cur = sh("cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor")
         want = "powersave" if cur == "performance" else "performance"
-        bg("pkexec cpu-governor %s 2>/dev/null || pkexec bash -c 'for c in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo %s > \"$c\"; done'" % (want, want))
+        priv("cpu-governor %s 2>/dev/null || for c in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo %s > \"$c\"; done" % (want, want))
+
+    def wallpaper(self, *_):
+        if sh("command -v wallpimp"): bg("wallpimp")
+        else: term("arx install wallpimp 2>/dev/null; wallpimp || (echo 'wallpimp (ARXOS Wallpaper Finder) not available'; read -rp '…')")
+
+    def snapshots(self, *_):
+        if sh("command -v timeshift-gtk"): priv("timeshift-gtk")
+        elif sh("command -v btrfs-assistant"): priv("btrfs-assistant")
+        else:
+            d = Gtk.MessageDialog(transient_for=self, modal=True, message_type=Gtk.MessageType.QUESTION,
+                buttons=Gtk.ButtonsType.YES_NO, text="Snapshot manager (Timeshift) not installed.\nInstall it now?")
+            r = d.run(); d.destroy()
+            if r == Gtk.ResponseType.YES: term("arx install timeshift; echo; read -rp 'installed — enter…'")
+
+    def _dialog(self, title, w=420, h=380):
+        d = Gtk.Dialog(title=title, transient_for=self, modal=True); d.set_default_size(w, h)
+        d.add_button("Close", Gtk.ResponseType.CLOSE)
+        a = d.get_content_area(); a.set_spacing(6)
+        for m in ("set_margin_top","set_margin_bottom","set_margin_start","set_margin_end"): getattr(a, m)(14)
+        return d, a
+
+    def kernels(self, *_):
+        d, a = self._dialog("Kernels", 380, 300)
+        run = sh("uname -r")
+        h = Gtk.Label(); h.set_markup("Running:  <span foreground='#5fd17a'><b>%s</b></span>" % run); h.set_xalign(0)
+        a.pack_start(h, False, False, 4)
+        for k in KERNELS:
+            installed = sh("pacman -Qq %s 2>/dev/null" % k) == k
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            lbl = Gtk.Label(label=k); lbl.set_xalign(0); lbl.get_style_context().add_class("krow")
+            if installed and k in run: lbl.get_style_context().add_class("krun")
+            row.pack_start(lbl, True, True, 0)
+            st = Gtk.Label(label=("installed" if installed else "available")); st.get_style_context().add_class("statlabel")
+            row.pack_start(st, False, False, 0)
+            btn = Gtk.Button(label=("Remove" if installed else "Install"))
+            if installed and k in run: btn.set_sensitive(False); btn.set_label("running")
+            btn.connect("clicked", (lambda kk: (lambda *_: term(("arx remove %s" if sh("pacman -Qq "+kk+" 2>/dev/null")==kk else "arx install %s %s-headers") % ((kk,) if sh("pacman -Qq "+kk+" 2>/dev/null")==kk else (kk,kk)) + "; echo; read -rp 'done — enter…'")))(k))
+            row.pack_start(btn, False, False, 0)
+            a.pack_start(row, False, False, 0)
+        note = Gtk.Label(label="Switch default at boot via the GRUB menu (Advanced options)."); note.set_xalign(0)
+        note.get_style_context().add_class("subtitle"); note.set_margin_top(6); a.pack_start(note, False, False, 0)
+        d.show_all(); d.run(); d.destroy()
+
+    def services(self, *_):
+        d, a = self._dialog("Services", 400, 360)
+        for s in SERVICES:
+            present = sh("systemctl list-unit-files %s.service 2>/dev/null | grep -c %s.service" % (s, s))
+            if present == "0": continue
+            en = sh("systemctl is-enabled %s 2>/dev/null" % s)
+            act = sh("systemctl is-active %s 2>/dev/null" % s)
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            lbl = Gtk.Label(label=s); lbl.set_xalign(0); lbl.get_style_context().add_class("krow")
+            if act == "active": lbl.get_style_context().add_class("krun")
+            row.pack_start(lbl, True, True, 0)
+            stt = Gtk.Label(label="%s · %s" % (en or "—", act or "—")); stt.get_style_context().add_class("statlabel")
+            row.pack_start(stt, False, False, 0)
+            sw = Gtk.Switch(); sw.set_active(en == "enabled"); sw.set_valign(Gtk.Align.CENTER)
+            sw.connect("notify::active", (lambda svc: (lambda s_, _g: priv("systemctl %s --now %s" % ("enable" if s_.get_active() else "disable", svc))))(s))
+            row.pack_start(sw, False, False, 0)
+            a.pack_start(row, False, False, 0)
+        d.show_all(); d.run(); d.destroy()
+
+    def sysinfo(self, *_):
+        d, a = self._dialog("System Information", 560, 520)
+        tv = Gtk.TextView(); tv.set_editable(False); tv.set_cursor_visible(False)
+        tv.set_monospace(True); tv.get_style_context().add_class("mono")
+        sc = Gtk.ScrolledWindow(); sc.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        sc.add(tv); a.pack_start(sc, True, True, 0)
+        buf = tv.get_buffer(); buf.set_text("gathering full hardware + OS report…")
+        def gather():
+            r = sh(r'''
+echo "=== ARXOS ==="
+echo "OS:        $(. /etc/os-release 2>/dev/null; echo ${PRETTY_NAME:-ARXOS} ) (Arch-based)"
+echo "Kernel:    $(uname -sr)"
+echo "Uptime:    $(uptime -p 2>/dev/null | sed 's/^up //')"
+echo "Packages:  $(pacman -Qq 2>/dev/null | wc -l) (pacman)$(command -v yay>/dev/null && echo ", $(yay -Qm 2>/dev/null|wc -l) AUR")"
+echo "Shell:     $SHELL"
+echo "DE/WM:     ${XDG_CURRENT_DESKTOP:-XFCE} / $(wmctrl -m 2>/dev/null|sed -n 's/Name: //p')"
+echo "Resolution:$(xrandr 2>/dev/null | sed -n 's/.* connected[^0-9]*\([0-9]*x[0-9]*\).*/ \1/p' | tr '\n' ' ')"
+echo
+echo "=== HARDWARE ==="
+echo "Host:      $(cat /sys/devices/virtual/dmi/id/sys_vendor 2>/dev/null) $(cat /sys/devices/virtual/dmi/id/product_name 2>/dev/null)"
+echo "Board:     $(cat /sys/devices/virtual/dmi/id/board_vendor 2>/dev/null) $(cat /sys/devices/virtual/dmi/id/board_name 2>/dev/null)"
+echo "BIOS:      $(cat /sys/devices/virtual/dmi/id/bios_vendor 2>/dev/null) $(cat /sys/devices/virtual/dmi/id/bios_version 2>/dev/null)"
+echo "CPU:       $(LANG=C lscpu 2>/dev/null | sed -n 's/Model name: *//p' | head -1)"
+echo "           $(nproc) threads @ $(LANG=C lscpu 2>/dev/null|sed -n 's/CPU max MHz: *//p'|head -1) MHz max · gov $(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null)"
+echo "GPU:       $(lspci 2>/dev/null | grep -iE 'vga|3d|display' | sed 's/.*: //' | paste -sd '; ')"
+echo "Memory:    $(free -h 2>/dev/null | awk '/Mem:/{print $3" used / "$2" total"}')"
+echo "Swap:      $(free -h 2>/dev/null | awk '/Swap:/{print $3" / "$2}')"
+echo
+echo "=== STORAGE ==="
+lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINTS 2>/dev/null | grep -vE 'loop|^$'
+echo
+echo "=== NETWORK ==="
+echo "Interface: $(ip route 2>/dev/null | awk '/default/{print $5; exit}')"
+echo "Local IP:  $(ip -4 addr show $(ip route 2>/dev/null|awk '/default/{print $5;exit}') 2>/dev/null | sed -n 's/.*inet \([0-9.]*\).*/\1/p')"
+echo "DNS:       $(grep -m1 nameserver /etc/resolv.conf 2>/dev/null | awk '{print $2}')"
+echo "Tor:       $(pgrep -x tor >/dev/null && echo 'routing through Tor' || echo 'clearnet')"
+''')
+            GLib.idle_add(buf.set_text, r or "could not gather system info")
+        threading.Thread(target=gather, daemon=True).start()
+        cp = Gtk.Button(label="Copy"); cp.connect("clicked", lambda *_: Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).set_text(buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False), -1))
+        a.pack_start(cp, False, False, 0)
+        d.show_all(); d.run(); d.destroy()
 
     def refresh(self):
         self.vals["kernel"].set_text(sh("uname -r") or "?")
-        self.vals["cpu"].set_text(sh("cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor") or "n/a")
+        c = cpu_pct(); gov = sh("cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor")
+        cv = self.vals["cpu"]; cv.set_text(("%d%%" % c if c is not None else "n/a") + ("  ·  " + gov if gov else ""))
+        cv.get_style_context().remove_class("warn")
+        if c is not None and c >= 80: cv.get_style_context().add_class("warn")
         self.vals["memory"].set_text(sh("free -m | awk '/Mem:/{printf \"%d / %d MB\", $3, $2}'") or "?")
         on = sh("pgrep -x tor") != ""
         tv = self.vals["tor"]; tv.set_text("routing through tor" if on else "off")
         (tv.get_style_context().add_class if on else tv.get_style_context().remove_class)("on")
+        self.vals["updated"].set_text(last_mod())
+        u = updates_count(); uv = self.vals["updates"]; uv.get_style_context().remove_class("warn"); uv.get_style_context().remove_class("on")
+        if u is None: uv.set_text("checking…")
+        elif u == 0: uv.set_text("up to date"); uv.get_style_context().add_class("on")
+        else: uv.set_text("%d available" % u); uv.get_style_context().add_class("warn")
         return True
 
 if __name__ == "__main__":
