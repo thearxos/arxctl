@@ -4,6 +4,8 @@ import gi, subprocess, time, os, threading, shlex, re
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, Gdk, GLib
 
+VERSION = "0.0.1"
+
 CSS = b"""
 window, dialog { background:#08080a; }
 .title  { font-family:'Playfair Display',serif; font-style:italic; font-size:23px; color:#ffffff; }
@@ -129,7 +131,7 @@ class ArxCtl(Gtk.Window):
         self.add(root)
         ttl = Gtk.Label(); ttl.set_markup("<span font='23'>ARX<span foreground='#e8702a'>OS</span></span>")
         ttl.set_xalign(0); ttl.get_style_context().add_class("title"); root.pack_start(ttl, False, False, 0)
-        sub = Gtk.Label(label="CONTROL CENTER"); sub.set_xalign(0)
+        sub = Gtk.Label(label="CONTROL CENTER  ·  v" + VERSION); sub.set_xalign(0)
         sub.get_style_context().add_class("subtitle"); root.pack_start(sub, False, False, 0)
         self.vals = {}
         sg = Gtk.Grid(column_spacing=12, row_spacing=5); sg.set_margin_top(8)
@@ -225,9 +227,8 @@ class ArxCtl(Gtk.Window):
         d.show_all(); d.run(); d.destroy()
 
     def wallpaper(self, *_):
-        for w in ("wallpimp-gui", "wallpimp"):
-            if sh("command -v " + w): bg(w); return
-        run_win("Wallpaper Finder", "arx -y install tk 2>/dev/null; cd /tmp && rm -rf wp && git clone https://github.com/thearxos/wallpimp wp && sudo install -m755 wp/wallpimp_gui.py /usr/local/bin/wallpimp-gui && sudo install -m755 wp/wallpimp /usr/local/bin/wallpimp && setsid wallpimp-gui")
+        if sh("command -v arxos-wallpaper"): bg("arxos-wallpaper"); return
+        run_win("Wallpaper Manager", "cd /tmp && rm -rf wp && git clone https://github.com/thearxos/wallpimp wp && sudo install -m755 wp/arxos-wallpaper /usr/local/bin/arxos-wallpaper && setsid arxos-wallpaper")
 
     def snapshots(self, *_):
         if sh("command -v timeshift-gtk"): priv("timeshift-gtk")
