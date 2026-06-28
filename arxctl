@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+ARXOS_VERSION="0.0.1"   # ARXOS: every tool pinned to 0.0.1
+case "${1:-}" in --version|-V) echo "arxctl ${ARXOS_VERSION} (ARXOS)"; exit 0 ;; esac
 # arxctl - ARXOS control center
 # A clean TUI to manage the system: updates, CachyOS kernels, performance,
 # tor privacy, services, wallpapers and info. — ARXOS native
