@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 # arxctl-gui — ARXOS Control Center (GTK3). Fully GUI; styled to the ARXOS design.
 import gi, subprocess, time, os, threading, shlex, re
+# GUI children (arx, t0rpoiz0n, leak test…) inherit our env. The panel gives us
+# no TERM, so any tput in a sourced rc/tool printed "No value for $TERM". Set a
+# sane default once → every output window is clean.
+os.environ.setdefault("TERM", "xterm-256color")
+os.environ.setdefault("COLUMNS", "100")
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, Gdk, GLib
 
@@ -153,8 +158,8 @@ class ArxCtl(Gtk.Window):
             ("preferences-system","Services", self.services),
             ("preferences-desktop-wallpaper","Wallpaper", self.wallpaper),
             ("dialog-information","Info", self.sysinfo),
-            ("view-refresh","Self-update", lambda *_: term("arxupd; echo; read -rp '…'")),
-        ]
+        ]   # "Update" now runs the unified `arx update` (system packages + ARXOS tools);
+            # the old separate "Self-update" card is folded into it.
         for i, (ic, ti, cb) in enumerate(cards):
             b = self._card(ic, ti); b.connect("clicked", cb); grid.attach(b, i % 3, i // 3, 1, 1)
         check_updates(); check_net(); self.refresh(); GLib.timeout_add_seconds(2, self.refresh)
@@ -204,7 +209,7 @@ class ArxCtl(Gtk.Window):
             bsw = Gtk.Switch(); bsw.set_active(sh("cat " + boost) == "1"); bsw.set_valign(Gtk.Align.CENTER)
             bsw.connect("notify::active", lambda s, _g: priv("echo %d > %s" % (1 if s.get_active() else 0, boost)))
             hb.pack_start(bsw, False, False, 0); a.pack_start(hb, False, False, 0)
-        d.show_all(); d.run(); d.destroy()
+        self._show(d)
 
     def privacy(self, *_):
         d, a = self._dialog("Privacy — Tor Anonymization", 450, 360)
@@ -224,7 +229,7 @@ class ArxCtl(Gtk.Window):
         lk = Gtk.Button(label="Leak test  (IP / DNS / IPv6)")
         lk.connect("clicked", lambda *_: run_win("Tor leak test", "printf 'Public IP:  '; curl -s --max-time 12 https://api.ipify.org; echo; echo; echo 'Tor check:'; curl -s --max-time 12 https://check.torproject.org/api/ip; echo; echo; printf 'DNS:        '; grep -m1 nameserver /etc/resolv.conf; printf 'IPv6 off:   '; cat /proc/sys/net/ipv6/conf/all/disable_ipv6"))
         a.pack_start(lk, False, False, 0)
-        d.show_all(); d.run(); d.destroy()
+        self._show(d)
 
     def wallpaper(self, *_):
         if sh("command -v arxos-wallpaper"): bg("arxos-wallpaper"); return
@@ -240,11 +245,19 @@ class ArxCtl(Gtk.Window):
             if r == Gtk.ResponseType.YES: term("arx install timeshift; echo; read -rp 'installed — enter…'")
 
     def _dialog(self, title, w=420, h=380):
-        d = Gtk.Dialog(title=title, transient_for=self, modal=True); d.set_default_size(w, h)
+        # Non-modal: a panel that does NOT spin a blocking nested loop, so output
+        # windows (leak test, tor actions) spawned from it stay interactive and
+        # their Close button works immediately.
+        d = Gtk.Dialog(title=title, transient_for=self, modal=False); d.set_default_size(w, h)
         d.add_button("Close", Gtk.ResponseType.CLOSE)
         a = d.get_content_area(); a.set_spacing(6)
         for m in ("set_margin_top","set_margin_bottom","set_margin_start","set_margin_end"): getattr(a, m)(14)
         return d, a
+
+    def _show(self, d):
+        # Replaces the old blocking `d.show_all(); d.run(); d.destroy()`.
+        d.connect("response", lambda dd, *_: dd.destroy())
+        d.show_all()
 
     def kernels(self, *_):
         d, a = self._dialog("Kernels", 470, 390)
@@ -276,7 +289,7 @@ class ArxCtl(Gtk.Window):
         rg = Gtk.Button(label="Regenerate GRUB config"); rg.connect("clicked", lambda *_: term("sudo grub-mkconfig -o /boot/grub/grub.cfg; echo; read -rp 'done — enter…'")); a.pack_start(rg, False, False, 0)
         note = Gtk.Label(label="Switch the default kernel at boot via the GRUB menu (Advanced options)."); note.set_xalign(0)
         note.get_style_context().add_class("subtitle"); note.set_margin_top(4); a.pack_start(note, False, False, 0)
-        d.show_all(); d.run(); d.destroy()
+        self._show(d)
 
     def services(self, *_):
         d, a = self._dialog("Services", 400, 360)
@@ -295,7 +308,7 @@ class ArxCtl(Gtk.Window):
             sw.connect("notify::active", (lambda svc: (lambda s_, _g: priv("systemctl %s --now %s" % ("enable" if s_.get_active() else "disable", svc))))(s))
             row.pack_start(sw, False, False, 0)
             a.pack_start(row, False, False, 0)
-        d.show_all(); d.run(); d.destroy()
+        self._show(d)
 
     def sysinfo(self, *_):
         d, a = self._dialog("System Information", 540, 580)
@@ -355,7 +368,7 @@ echo "Tor|$(grep -q '^nameserver 127.0.0.1' /etc/resolv.conf 2>/dev/null && echo
         cp = Gtk.Button(label="Copy report")
         cp.connect("clicked", lambda *_: Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).set_text(report["txt"].replace("@", "\n").replace("|", ":  "), -1))
         a.pack_start(cp, False, False, 0)
-        d.show_all(); d.run(); d.destroy()
+        self._show(d)
 
     def refresh(self):
         self.vals["kernel"].set_text(sh("uname -r") or "?")
