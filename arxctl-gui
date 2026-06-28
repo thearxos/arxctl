@@ -297,45 +297,62 @@ class ArxCtl(Gtk.Window):
         d.show_all(); d.run(); d.destroy()
 
     def sysinfo(self, *_):
-        d, a = self._dialog("System Information", 560, 520)
-        tv = Gtk.TextView(); tv.set_editable(False); tv.set_cursor_visible(False)
-        tv.set_monospace(True); tv.get_style_context().add_class("mono")
-        sc = Gtk.ScrolledWindow(); sc.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        sc.add(tv); a.pack_start(sc, True, True, 0)
-        buf = tv.get_buffer(); buf.set_text("gathering full hardware + OS report…")
+        d, a = self._dialog("System Information", 540, 580)
+        sc = Gtk.ScrolledWindow(); sc.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        box.set_margin_start(4); box.set_margin_end(8); sc.add(box); a.pack_start(sc, True, True, 0)
+        ld = Gtk.Label(label="gathering hardware + OS report…"); ld.set_xalign(0); ld.get_style_context().add_class("statlabel"); box.pack_start(ld, False, False, 0)
+        report = {"txt": ""}
+        def render(data):
+            report["txt"] = data
+            for c in box.get_children(): c.destroy()
+            grid = None
+            for line in data.splitlines():
+                if line.startswith("@"):
+                    h = Gtk.Label(); h.set_markup("<span foreground='#e8702a' weight='700' size='small'>%s</span>" % line[1:]); h.set_xalign(0); h.set_margin_top(13)
+                    box.pack_start(h, False, False, 0)
+                    grid = Gtk.Grid(column_spacing=14, row_spacing=4); grid.set_margin_top(3); box.pack_start(grid, False, False, 0); grid.r = 0
+                elif "|" in line and grid is not None:
+                    k, v = line.split("|", 1)
+                    kl = Gtk.Label(label=k); kl.set_xalign(0); kl.set_valign(Gtk.Align.START); kl.set_size_request(92, -1); kl.get_style_context().add_class("statlabel")
+                    vl = Gtk.Label(label=v.strip() or "—"); vl.set_xalign(0); vl.set_line_wrap(True); vl.set_selectable(True); vl.get_style_context().add_class("statvalue")
+                    grid.attach(kl, 0, grid.r, 1, 1); grid.attach(vl, 1, grid.r, 1, 1); grid.r += 1
+            box.show_all(); return False
         def gather():
-            r = sh(r'''
-echo "=== ARXOS ==="
-echo "OS:        $(. /etc/os-release 2>/dev/null; echo ${PRETTY_NAME:-ARXOS} ) (Arch-based)"
-echo "Kernel:    $(uname -sr)"
-echo "Uptime:    $(uptime -p 2>/dev/null | sed 's/^up //')"
-echo "Packages:  $(pacman -Qq 2>/dev/null | wc -l) (pacman)$(command -v yay>/dev/null && echo ", $(yay -Qm 2>/dev/null|wc -l) AUR")"
-echo "Shell:     $SHELL"
-echo "DE/WM:     ${XDG_CURRENT_DESKTOP:-XFCE} / $(wmctrl -m 2>/dev/null|sed -n 's/Name: //p')"
-echo "Resolution:$(xrandr 2>/dev/null | sed -n 's/.* connected[^0-9]*\([0-9]*x[0-9]*\).*/ \1/p' | tr '\n' ' ')"
-echo
-echo "=== HARDWARE ==="
-echo "Host:      $(cat /sys/devices/virtual/dmi/id/sys_vendor 2>/dev/null) $(cat /sys/devices/virtual/dmi/id/product_name 2>/dev/null)"
-echo "Board:     $(cat /sys/devices/virtual/dmi/id/board_vendor 2>/dev/null) $(cat /sys/devices/virtual/dmi/id/board_name 2>/dev/null)"
-echo "BIOS:      $(cat /sys/devices/virtual/dmi/id/bios_vendor 2>/dev/null) $(cat /sys/devices/virtual/dmi/id/bios_version 2>/dev/null)"
-echo "CPU:       $(LANG=C lscpu 2>/dev/null | sed -n 's/Model name: *//p' | head -1)"
-echo "           $(nproc) threads @ $(LANG=C lscpu 2>/dev/null|sed -n 's/CPU max MHz: *//p'|head -1) MHz max · gov $(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null)"
-echo "GPU:       $(lspci 2>/dev/null | grep -iE 'vga|3d|display' | sed 's/.*: //' | paste -sd '; ')"
-echo "Memory:    $(free -h 2>/dev/null | awk '/Mem:/{print $3" used / "$2" total"}')"
-echo "Swap:      $(free -h 2>/dev/null | awk '/Swap:/{print $3" / "$2}')"
-echo
-echo "=== STORAGE ==="
-lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINTS 2>/dev/null | grep -vE 'loop|^$'
-echo
-echo "=== NETWORK ==="
-echo "Interface: $(ip route 2>/dev/null | awk '/default/{print $5; exit}')"
-echo "Local IP:  $(ip -4 addr show $(ip route 2>/dev/null|awk '/default/{print $5;exit}') 2>/dev/null | sed -n 's/.*inet \([0-9.]*\).*/\1/p')"
-echo "DNS:       $(grep -m1 nameserver /etc/resolv.conf 2>/dev/null | awk '{print $2}')"
-echo "Tor:       $(pgrep -x tor >/dev/null && echo 'routing through Tor' || echo 'clearnet')"
+            data = sh(r'''
+echo "@OPERATING SYSTEM"
+echo "OS|$(. /etc/os-release 2>/dev/null; echo ${PRETTY_NAME:-ARXOS}) · Arch-based"
+echo "Kernel|$(uname -sr)"
+echo "Uptime|$(uptime -p 2>/dev/null | sed 's/^up //')"
+echo "Packages|$(pacman -Qq 2>/dev/null | wc -l) native$(command -v yay>/dev/null && echo " · $(yay -Qm 2>/dev/null|wc -l) AUR")"
+echo "Shell|$(basename "${SHELL:-?}")"
+echo "Desktop|${XDG_CURRENT_DESKTOP:-XFCE}"
+echo "Display|$(xrandr 2>/dev/null | sed -n 's/.* connected[^0-9]*\([0-9]*x[0-9]*\).*/\1/p' | paste -sd ', ')"
+echo "@PROCESSOR"
+echo "Model|$(LANG=C lscpu 2>/dev/null | sed -n 's/Model name: *//p' | head -1)"
+echo "Cores|$(nproc) threads"
+echo "Max clock|$(LANG=C lscpu 2>/dev/null|sed -n 's/CPU max MHz: *//p'|head -1|cut -d. -f1) MHz"
+echo "Governor|$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null)"
+echo "@GRAPHICS & MEMORY"
+echo "GPU|$(lspci 2>/dev/null | grep -iE 'vga|3d|display' | sed 's/.*: //' | paste -sd '; ')"
+echo "Memory|$(free -h 2>/dev/null | awk '/Mem:/{print $3" / "$2}')"
+echo "Swap|$(free -h 2>/dev/null | awk '/Swap:/{print $3" / "$2}')"
+echo "@MACHINE"
+echo "Vendor|$(cat /sys/devices/virtual/dmi/id/sys_vendor 2>/dev/null) $(cat /sys/devices/virtual/dmi/id/product_name 2>/dev/null)"
+echo "Board|$(cat /sys/devices/virtual/dmi/id/board_name 2>/dev/null)"
+echo "BIOS|$(cat /sys/devices/virtual/dmi/id/bios_version 2>/dev/null)"
+echo "@STORAGE"
+lsblk -ndo NAME,SIZE,TYPE,MOUNTPOINTS 2>/dev/null | grep -vE 'loop' | awk '{m=$4; printf "%s|%s %s%s\n", $1, $2, $3, (m?" → "m:"")}'
+echo "@NETWORK"
+echo "Interface|$(ip route 2>/dev/null | awk '/default/{print $5; exit}')"
+echo "Local IP|$(ip -4 addr show $(ip route 2>/dev/null|awk '/default/{print $5;exit}') 2>/dev/null | sed -n 's/.*inet \([0-9.]*\).*/\1/p')"
+echo "DNS|$(grep -m1 nameserver /etc/resolv.conf 2>/dev/null | awk '{print $2}')"
+echo "Tor|$(grep -q '^nameserver 127.0.0.1' /etc/resolv.conf 2>/dev/null && echo 'routing through Tor' || echo 'clearnet')"
 ''')
-            GLib.idle_add(buf.set_text, r or "could not gather system info")
+            GLib.idle_add(render, data or "could not gather system info")
         threading.Thread(target=gather, daemon=True).start()
-        cp = Gtk.Button(label="Copy"); cp.connect("clicked", lambda *_: Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).set_text(buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False), -1))
+        cp = Gtk.Button(label="Copy report")
+        cp.connect("clicked", lambda *_: Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).set_text(report["txt"].replace("@", "\n").replace("|", ":  "), -1))
         a.pack_start(cp, False, False, 0)
         d.show_all(); d.run(); d.destroy()
 
