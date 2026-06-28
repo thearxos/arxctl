@@ -225,9 +225,9 @@ class ArxCtl(Gtk.Window):
         d.show_all(); d.run(); d.destroy()
 
     def wallpaper(self, *_):
-        if sh("command -v wallpimp"): bg("wallpimp")
-        elif sh("command -v xfdesktop-settings"): bg("xfdesktop-settings")
-        else: run_win("Wallpaper Finder", "arx install wallpimp && wallpimp")
+        for w in ("wallpimp-gui", "wallpimp"):
+            if sh("command -v " + w): bg(w); return
+        run_win("Wallpaper Finder", "arx -y install tk 2>/dev/null; cd /tmp && rm -rf wp && git clone https://github.com/thearxos/wallpimp wp && sudo install -m755 wp/wallpimp_gui.py /usr/local/bin/wallpimp-gui && sudo install -m755 wp/wallpimp /usr/local/bin/wallpimp && setsid wallpimp-gui")
 
     def snapshots(self, *_):
         if sh("command -v timeshift-gtk"): priv("timeshift-gtk")
