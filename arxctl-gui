@@ -163,8 +163,16 @@ class ArxCtl(Gtk.Window):
         for i, (ic, ti, cb) in enumerate(cards):
             b = self._card(ic, ti); b.connect("clicked", cb); grid.attach(b, i % 3, i // 3, 1, 1)
         check_updates(); check_net(); self.refresh(); GLib.timeout_add_seconds(2, self.refresh)
-        GLib.timeout_add_seconds(900, lambda: (check_updates(), True)[1])
+        GLib.timeout_add_seconds(120, lambda: (check_updates(), True)[1])
         GLib.timeout_add_seconds(8, lambda: (check_net(), True)[1])
+        # Re-check the update count whenever the user returns to the window
+        # (debounced to 15s), so it never sits stale after updating elsewhere.
+        self._last_uchk = time.time()
+        def _on_focus(*a):
+            if time.time() - self._last_uchk > 15:
+                self._last_uchk = time.time(); check_updates()
+            return False
+        self.connect("focus-in-event", _on_focus)
 
     def _card(self, icon, title):
         b = Gtk.Button(); b.get_style_context().add_class("card")
