@@ -96,8 +96,16 @@ def last_mod():
 UPD = "/tmp/.arxctl_updates"
 def check_updates():
     def run():
-        n = sh("(checkupdates 2>/dev/null; (command -v yay >/dev/null && yay -Qua 2>/dev/null)) | wc -l")
-        try: open(UPD,"w").write(n or "0")
+        try:
+            # Count actionable updates: unique repo + AUR package names, minus
+            # anything in IgnorePkg (so perpetually-broken/ignored AUR packages
+            # don't wedge the counter). pacman-conf parses pacman.conf correctly.
+            ign = set(sh("pacman-conf IgnorePkg 2>/dev/null").split())
+            lines = sh("checkupdates 2>/dev/null").splitlines()
+            if sh("command -v yay"): lines += sh("yay -Qua 2>/dev/null").splitlines()
+            names = {p.split()[0] for p in lines if p.split()}
+            names -= ign
+            open(UPD, "w").write(str(len(names)))
         except Exception: pass
     threading.Thread(target=run, daemon=True).start()
 def updates_count():
