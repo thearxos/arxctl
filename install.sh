@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-set -e; D="$(cd "$(dirname "$0")" && pwd)"; S=""; [ "$(id -u)" -ne 0 ] && S=sudo
-$S install -Dm755 "$D/arxctl"     /usr/local/bin/arxctl
+D=$(cd "$(dirname "$0")" && pwd); S=""; [ "$(id -u)" -ne 0 ] && S=sudo
 $S install -Dm755 "$D/arxctl-gui" /usr/local/bin/arxctl-gui
-$S install -Dm644 "$D/arxos-control.desktop" /usr/share/applications/arxos-control.desktop
-python3 -c 'import gi; gi.require_version("Gtk","3.0")' 2>/dev/null || $S pacman -S --noconfirm --needed python-gobject gtk3 >/dev/null 2>&1 || true
-echo "arxctl (TUI) + arxctl-gui (GUI) + launcher installed"
+[ -f "$D/arxctl" ] && $S install -Dm755 "$D/arxctl" /usr/local/bin/arxctl
+$S install -Dm755 "$D/arxos-news" /usr/local/bin/arxos-news
+$S install -Dm644 "$D/arxos-news.service" /usr/lib/systemd/user/arxos-news.service
+$S install -Dm644 "$D/arxos-news.timer"   /usr/lib/systemd/user/arxos-news.timer
+$S systemctl --global enable arxos-news.timer 2>/dev/null || true
+echo "arxctl + arxos-news installed (news timer enabled for all users)"

@@ -1,0 +1,7 @@
+[Unit]
+Description=ARXOS news - notify on new ARXOS tool commits
+After=graphical-session.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/arxos-news --quiet
