@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # arxctl-gui — ARXOS Control Center (GTK3). Fully GUI; styled to the ARXOS design.
-import gi, subprocess, time, os, threading, shlex, re
+import gi, subprocess, time, os, threading, shlex, re, json, random, datetime, urllib.request, urllib.parse
 # GUI children (arx, t0rpoiz0n, leak test…) inherit our env. The panel gives us
 # no TERM, so any tput in a sourced rc/tool printed "No value for $TERM". Set a
 # sane default once → every output window is clean.
@@ -15,6 +15,7 @@ CSS = b"""
 window, dialog { background:#08080a; }
 .title  { font-family:'Playfair Display',serif; font-style:italic; font-size:23px; color:#ffffff; }
 .subtitle { color:#7a7a80; font-size:10px; }
+.greeting { color:#cdb892; font-size:12px; font-style:italic; }
 .statlabel { color:#66666c; font-size:10px; }
 .statvalue { color:#e8e8ea; font-size:12px; font-weight:600; }
 .statvalue.on { color:#5fd17a; }
@@ -34,6 +35,53 @@ def sh(c):
     except Exception: return ""
 
 def bg(cmd): subprocess.Popen(cmd, shell=True)
+
+# ---- greeting (time of day + live weather/location) ----
+GREETINGS = {
+    "morning":   ["Good morning", "Morning", "Rise and shine"],
+    "afternoon": ["Good afternoon", "Afternoon", "Hope the day's treating you well"],
+    "evening":   ["Good evening", "Evening", "Winding down for the day"],
+    "night":     ["Working late", "Good evening", "Burning the midnight oil"],
+}
+WEATHER_FLAVOR = [
+    ("sun", "the sun is shining"), ("clear", "clear skies out there"),
+    ("partly", "a little cloudy out"), ("cloud", "cloudy outside"),
+    ("overcast", "grey skies today"), ("drizzle", "a light drizzle outside"),
+    ("rain", "it's raining, stay dry"), ("snow", "snow outside, bundle up"),
+    ("thunder", "storms rolling through"), ("mist", "misty out there"),
+    ("fog", "foggy outside"), ("haze", "a bit hazy out"),
+]
+
+def _daypart(h):
+    if 5 <= h < 12:  return "morning"
+    if 12 <= h < 17: return "afternoon"
+    if 17 <= h < 22: return "evening"
+    return "night"
+
+def fetch_weather():
+    """(city, temp_C, desc) from wttr.in, honoring ~/.config/arxos/location, else IP geo."""
+    loc = ""
+    try:
+        lf = os.path.expanduser("~/.config/arxos/location")
+        if os.path.exists(lf): loc = open(lf).read().strip()
+    except Exception: pass
+    url = ("https://wttr.in/%s?format=j1" % urllib.parse.quote(loc)) if loc else "https://wttr.in/?format=j1"
+    req = urllib.request.Request(url, headers={"User-Agent": "curl/8"})
+    d = json.load(urllib.request.urlopen(req, timeout=8))
+    cur = d["current_condition"][0]
+    area = (d.get("nearest_area") or [{}])[0]
+    city = ((area.get("areaName") or [{}])[0].get("value", "") if area else "") or loc
+    return city, cur.get("temp_C", ""), (cur.get("weatherDesc") or [{}])[0].get("value", "")
+
+def greeting_text(city=None, temp=None, desc=None):
+    base = random.choice(GREETINGS[_daypart(datetime.datetime.now().hour)])
+    if not desc:
+        return base + " · welcome back"
+    flavor = next((f for k, f in WEATHER_FLAVOR if k in desc.lower()), "it's " + desc.lower().strip())
+    loc = (" in %s" % city) if city else ""
+    if temp not in (None, "", "?"):
+        return "%s · %s%s, %s°C" % (base, flavor, loc, temp)
+    return "%s · %s%s" % (base, flavor, loc)
 
 def run_win(title, cmd, privileged=False):
     win = Gtk.Window(title=title); win.set_default_size(680, 470); win.set_position(Gtk.WindowPosition.CENTER)
@@ -149,6 +197,14 @@ class ArxCtl(Gtk.Window):
         ttl.set_xalign(0); ttl.get_style_context().add_class("title"); root.pack_start(ttl, False, False, 0)
         sub = Gtk.Label(label="CONTROL CENTER  ·  v" + VERSION); sub.set_xalign(0)
         sub.get_style_context().add_class("subtitle"); root.pack_start(sub, False, False, 0)
+        self.greet = Gtk.Label(label=greeting_text()); self.greet.set_xalign(0); self.greet.set_line_wrap(True)
+        self.greet.get_style_context().add_class("greeting"); self.greet.set_margin_top(6)
+        root.pack_start(self.greet, False, False, 0)
+        def _gw():
+            try:
+                c, t, ds = fetch_weather(); GLib.idle_add(self.greet.set_text, greeting_text(c, t, ds))
+            except Exception: pass
+        threading.Thread(target=_gw, daemon=True).start()
         self.vals = {}
         sg = Gtk.Grid(column_spacing=12, row_spacing=5); sg.set_margin_top(8)
         for i, k in enumerate(("kernel","cpu","memory","tor","updated","updates")):
