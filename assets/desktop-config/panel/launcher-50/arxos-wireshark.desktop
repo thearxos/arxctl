@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Wireshark
+Icon=/usr/share/icons/ArxOS/arxos-wireshark.png
+Exec=wireshark
+Categories=Network;Security;
+Comment=
+Path=
+Terminal=false
+StartupNotify=false

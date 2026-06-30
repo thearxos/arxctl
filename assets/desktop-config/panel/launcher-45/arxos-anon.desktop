@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=ArxOS-AnonKit
+GenericName=Tor Anonymization
+Comment=t0rpoiz0n — route the system through Tor
+Exec=t0r-gui
+Icon=/usr/share/icons/ArxOS/arxos-anonkit.png
+Categories=Network;Security;System;
+Terminal=false
+Keywords=tor;anonymity;privacy;vpn;
+Path=
+StartupNotify=false
