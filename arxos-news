@@ -48,12 +48,17 @@ def main():
         try: sha, msg = latest(name)
         except Exception: continue
         if not sha: continue
-        if (name in seen and seen[name] != sha and not first) or force:
-            try:
+        try:
+            if name not in seen:
+                # a repo newly added to the registry = a new ARXOS tool shipped
+                if not first or force:
+                    subprocess.Popen(["notify-send", "-a", "ARXOS", "-u", "normal",
+                                      "-i", "software-update-available", "ARXOS · new tool",
+                                      "%s shipped to ARXOS" % name]); new += 1
+            elif seen[name] != sha or force:
                 subprocess.Popen(["notify-send", "-a", "ARXOS", "-u", "normal",
-                                  "-i", icon(msg), "ARXOS · %s" % name, msg])
-                new += 1
-            except Exception: pass
+                                  "-i", icon(msg), "ARXOS · %s" % name, msg]); new += 1
+        except Exception: pass
         seen[name] = sha
     json.dump(seen, open(STATE, "w"))
     open(COUNT, "w").write(str(new))
