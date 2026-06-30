@@ -4,7 +4,7 @@ import gi, subprocess, time, os, threading, shlex, re, json, random, datetime, u
 # GUI children (arx, t0rpoiz0n, leak test…) inherit our env. The panel gives us
 # no TERM, so any tput in a sourced rc/tool printed "No value for $TERM". Set a
 # sane default once → every output window is clean.
-os.environ.setdefault("TERM", "xterm-256color")
+if os.environ.get("TERM", "") in ("", "unknown", "dumb"): os.environ["TERM"] = "xterm-256color"
 os.environ.setdefault("COLUMNS", "100")
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, Gdk, GLib

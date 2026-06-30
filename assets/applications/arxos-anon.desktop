@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=ArxOS-AnonKit
+GenericName=Anonymization Toolkit
+Comment=Real-world OPSEC for ArxOS - MAC spoofing, VPN->Tor, leak-proof anonymization
+Exec=t0r-gui
+Icon=/usr/share/icons/ArxOS/arxos-anonkit.png
+Categories=Network;Security;System;
+Terminal=false
+Keywords=tor;anonymity;privacy;vpn;anonkit;opsec;
