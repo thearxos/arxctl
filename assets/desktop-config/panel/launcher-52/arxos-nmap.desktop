@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Nmap
+Icon=/usr/share/icons/ArxOS/arxos-nmap.png
+Exec=xfce4-terminal -e "bash -lc 'sudo nmap; exec bash'"
+Categories=Security;
+Comment=
+Path=
+Terminal=false
+StartupNotify=false

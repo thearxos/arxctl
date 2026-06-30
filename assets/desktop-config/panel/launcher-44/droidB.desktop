@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=droidB
+GenericName=Android Toolkit
+Comment=ADB / Fastboot / Frida Android toolkit — debloat, backup, security testing
+Exec=droidB-gui
+Icon=/usr/share/icons/ArxOS/droidB.png
+Categories=System;Development;Security;Utility;
+Terminal=false
+Keywords=android;adb;fastboot;apk;frida;debloat;backup;
+Path=
+StartupNotify=false

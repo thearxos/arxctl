@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Metasploit
+Icon=/usr/share/icons/ArxOS/arxos-msf.png
+Exec=xfce4-terminal -e msfconsole
+Categories=Security;
+Comment=
+Path=
+Terminal=false
+StartupNotify=false
