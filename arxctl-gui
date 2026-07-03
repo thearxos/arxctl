@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # arxctl-gui — ARXOS Control Center (GTK3). Fully GUI; styled to the ARXOS design.
 import gi, subprocess, time, os, threading, shlex, re, json, random, datetime, urllib.request, urllib.parse
-# GUI children (arx, t0rpoiz0n, leak test…) inherit our env. The panel gives us
+# GUI children (arx, anonkit, leak test…) inherit our env. The panel gives us
 # no TERM, so any tput in a sourced rc/tool printed "No value for $TERM". Set a
 # sane default once → every output window is clean.
 if os.environ.get("TERM", "") in ("", "unknown", "dumb"): os.environ["TERM"] = "xterm-256color"
@@ -200,7 +200,7 @@ def net_info():
     except Exception: return None, ""
 
 KERNELS = ["linux", "linux-zen", "linux-lts", "linux-hardened"]
-SERVICES = ["NetworkManager","sshd","bluetooth","cups","firewalld","docker","tor-t0rpoiz0n","systemd-timesyncd"]
+SERVICES = ["NetworkManager","sshd","bluetooth","cups","firewalld","docker","tor-anonkit","systemd-timesyncd"]
 
 class ArxCtl(Gtk.Window):
     def __init__(self):
@@ -240,7 +240,6 @@ class ArxCtl(Gtk.Window):
             ("system-software-update","Update", lambda *_: term("arx update; echo; read -rp 'done — enter…'")),
             ("computer","Kernels", self.kernels),
             ("applications-system","Performance", self.perf),
-            ("security-high","Privacy", self.privacy),
             ("document-save","Snapshots", self.snapshots),
             ("preferences-system","Services", self.services),
             ("preferences-desktop-wallpaper","Wallpaper", self.wallpaper),
@@ -304,26 +303,6 @@ class ArxCtl(Gtk.Window):
             bsw = Gtk.Switch(); bsw.set_active(sh("cat " + boost) == "1"); bsw.set_valign(Gtk.Align.CENTER)
             bsw.connect("notify::active", lambda s, _g: priv("echo %d > %s" % (1 if s.get_active() else 0, boost)))
             hb.pack_start(bsw, False, False, 0); a.pack_start(hb, False, False, 0)
-        self._show(d)
-
-    def privacy(self, *_):
-        d, a = self._dialog("Privacy — Tor Anonymization", 450, 360)
-        st = Gtk.Label(); st.set_xalign(0); st.set_line_wrap(True); a.pack_start(st, False, False, 2)
-        sp = Gtk.Box(); sp.get_style_context().add_class("sep"); sp.set_margin_top(8); sp.set_margin_bottom(8); a.pack_start(sp, False, False, 0)
-        def state():
-            istor, ip = net_info()
-            proxy = sh("grep -q '^nameserver 127.0.0.1' /etc/resolv.conf 2>/dev/null && echo 1") == "1"
-            if istor: st.set_markup("<span foreground='#5fd17a'><b>● routing through Tor</b></span>\nexit IP:  %s" % (ip or "…"))
-            elif proxy: st.set_markup("<span foreground='#e8702a'><b>● starting…</b></span>\nbootstrapping Tor circuit")
-            else: st.set_markup("<span foreground='#9a9a9a'><b>○ off</b></span>\nclearnet%s" % (" · " + ip if ip else ""))
-            return True
-        state(); tid = GLib.timeout_add_seconds(3, state); d.connect("destroy", lambda *_: GLib.source_remove(tid))
-        def act(c): priv("t0rpoiz0n " + c); GLib.timeout_add_seconds(3, lambda: (check_net(), False)[1])
-        for label, c in (("Start Tor", "-s"), ("Start + spoof MAC", "-s -m"), ("New circuit", "-r"), ("Stop  ·  restore clearnet", "-k")):
-            b = Gtk.Button(label=label); b.connect("clicked", (lambda cc: lambda *_: act(cc))(c)); a.pack_start(b, False, False, 0)
-        lk = Gtk.Button(label="Leak test  (IP / DNS / IPv6)")
-        lk.connect("clicked", lambda *_: run_win("Tor leak test", "printf 'Public IP:  '; curl -s --max-time 12 https://api.ipify.org; echo; echo; echo 'Tor check:'; curl -s --max-time 12 https://check.torproject.org/api/ip; echo; echo; printf 'DNS:        '; grep -m1 nameserver /etc/resolv.conf; printf 'IPv6 off:   '; cat /proc/sys/net/ipv6/conf/all/disable_ipv6"))
-        a.pack_start(lk, False, False, 0)
         self._show(d)
 
     def wallpaper(self, *_):
