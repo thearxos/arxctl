@@ -142,18 +142,38 @@ def last_mod():
     except Exception: return "?"
 
 UPD = "/tmp/.arxctl_updates"
+def count_tool_updates():
+    """ArxOS tool updates: manifest repos whose remote HEAD differs from what is installed."""
+    n = 0
+    manifest = os.environ.get("ARXOS_MANIFEST", "/etc/arxos/repos.list")
+    cache = os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")), "arxos", "repos")
+    try: mlines = open(manifest).read().splitlines()
+    except Exception: return 0
+    for ln in mlines:
+        ln = ln.strip()
+        if not ln or ln.startswith("#"): continue
+        p = ln.split()
+        if len(p) < 2 or not p[1].startswith("https://"): continue
+        branch = p[2] if len(p) > 2 else "main"
+        d = os.path.join(cache, p[0])
+        if not os.path.isdir(os.path.join(d, ".git")): n += 1; continue   # not installed yet
+        # env -u neutralizes any leaked GIT_DIR; -C uses the repo's own origin remote
+        g = "env -u GIT_DIR -u GIT_WORK_TREE git -C %s " % shlex.quote(d)
+        loc = sh(g + "rev-parse HEAD 2>/dev/null")
+        rem = sh(g + "ls-remote origin %s 2>/dev/null" % shlex.quote(branch)).split()
+        if loc and rem and rem[0] != loc: n += 1
+    return n
 def check_updates():
     def run():
         try:
-            # Count actionable updates: unique repo + AUR package names, minus
-            # anything in IgnorePkg (so perpetually-broken/ignored AUR packages
-            # don't wedge the counter). pacman-conf parses pacman.conf correctly.
+            # Actionable updates = repo + AUR packages (minus IgnorePkg) PLUS ArxOS tool
+            # updates (manifest repos with new commits), so the counter matches the news.
             ign = set(sh("pacman-conf IgnorePkg 2>/dev/null").split())
             lines = sh("checkupdates 2>/dev/null").splitlines()
             if sh("command -v yay"): lines += sh("yay -Qua 2>/dev/null").splitlines()
             names = {p.split()[0] for p in lines if p.split()}
             names -= ign
-            open(UPD, "w").write(str(len(names)))
+            open(UPD, "w").write(str(len(names) + count_tool_updates()))
             # also check ARXOS news (new tool commits) -> right-side popups
             try: subprocess.Popen(["arxos-news", "--quiet"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             except Exception: pass
