@@ -237,7 +237,7 @@ class ArxCtl(Gtk.Window):
         grid = Gtk.Grid(column_spacing=10, row_spacing=10, column_homogeneous=True, row_homogeneous=True)
         root.pack_start(grid, True, True, 4)
         cards = [
-            ("system-software-update","Update", lambda *_: term("arx update; echo; read -rp 'done — enter…'")),
+            ("system-software-update","Update", lambda *_: bg("setsid xfce4-terminal --title='ArxOS  ·  Update' -x bash -lc \"arx update; echo; read -rp 'done - press enter to close...'\" >/dev/null 2>&1")),
             ("computer","Kernels", self.kernels),
             ("applications-system","Performance", self.perf),
             ("document-save","Snapshots", self.snapshots),
