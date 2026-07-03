@@ -1,0 +1,27 @@
+name: Mirror to dist
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+concurrency: mirror-to-dist
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sync clean tree to the public -dist mirror
+        env:
+          MIRROR_KEY: ${{ secrets.MIRROR_KEY }}
+        run: |
+          set -e
+          install -d -m700 ~/.ssh
+          printf "%s\n" "$MIRROR_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+          work=$(mktemp -d); cp -a ./. "$work"/; cd "$work"
+          rm -rf .git .github
+          git init -q; git branch -M main
+          git -c user.name="ArxOS" -c user.email="ci@thearxos" add -A
+          git -c user.name="ArxOS" -c user.email="ci@thearxos" commit -q -m "mirror: sync from source ${GITHUB_SHA::7}"
+          GIT_SSH_COMMAND="ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no" \
+            git push -f "git@github.com:${GITHUB_REPOSITORY}-dist.git" main
