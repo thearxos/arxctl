@@ -35,13 +35,6 @@ def repos():
     except Exception:
         return
 
-<<<<<<< Updated upstream
-def latest(name):
-    # primary: GitHub API (also gives us the commit message for the notification)
-    try:
-        req = urllib.request.Request(
-            "https://api.github.com/repos/%s/%s/commits?per_page=1" % (OWNER, name),
-=======
 def _slug(url):
     # https://github.com/thearxos/arx-dist(.git) -> thearxos/arx-dist
     s = url.rstrip("/")
@@ -54,7 +47,6 @@ def latest(name, url):
     try:
         req = urllib.request.Request(
             "https://api.github.com/repos/%s/commits?per_page=1" % slug,
->>>>>>> Stashed changes
             headers={"User-Agent": "ARXOS-news/%s" % VERSION, "Accept": "application/vnd.github+json"})
         d = json.load(urllib.request.urlopen(req, timeout=12))
         if d: return d[0]["sha"], d[0]["commit"]["message"].splitlines()[0][:120]
@@ -63,16 +55,11 @@ def latest(name, url):
     # fallback: git ls-remote has no rate limit, so detection keeps working even after
     # the API's 60/hr unauthenticated cap is hit (we just lose the commit message).
     try:
-<<<<<<< Updated upstream
-        out = subprocess.run(["git", "ls-remote", "https://github.com/%s/%s" % (OWNER, name), "HEAD"],
-                             capture_output=True, text=True, timeout=12).stdout.split()
-=======
         # cwd="/" so git never tries to discover a repo from the caller's directory (a broken
         # .git there would fail the remote lookup); prompt off so a private URL fails fast.
         out = subprocess.run(["git", "ls-remote", url, "HEAD"],
                              capture_output=True, text=True, timeout=12, cwd="/",
                              env={**os.environ, "GIT_TERMINAL_PROMPT": "0"}).stdout.split()
->>>>>>> Stashed changes
         if out: return out[0], "new update available"
     except Exception:
         pass
