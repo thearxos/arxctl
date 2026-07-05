@@ -21,19 +21,40 @@ def icon(m):
     return "security-high"
 
 def repos():
+    # yields (name, url) from the manifest. The URL is the PUBLIC -dist mirror; the private
+    # thearxos/<name> source is unreachable without auth, so we must query the manifest URL.
     try:
         for ln in open(MANIFEST):
             ln = ln.strip()
             if ln and not ln.startswith("#"):
-                yield ln.split()[0]
+                p = ln.split()
+                if len(p) >= 2 and p[1].startswith("http"):
+                    yield p[0], p[1]
+                elif p:
+                    yield p[0], "https://github.com/%s/%s-dist" % (OWNER, p[0])
     except Exception:
         return
 
+<<<<<<< Updated upstream
 def latest(name):
     # primary: GitHub API (also gives us the commit message for the notification)
     try:
         req = urllib.request.Request(
             "https://api.github.com/repos/%s/%s/commits?per_page=1" % (OWNER, name),
+=======
+def _slug(url):
+    # https://github.com/thearxos/arx-dist(.git) -> thearxos/arx-dist
+    s = url.rstrip("/")
+    if s.endswith(".git"): s = s[:-4]
+    return s.split("github.com/", 1)[-1] if "github.com/" in s else s
+
+def latest(name, url):
+    slug = _slug(url)
+    # primary: GitHub API (also gives us the commit message for the notification)
+    try:
+        req = urllib.request.Request(
+            "https://api.github.com/repos/%s/commits?per_page=1" % slug,
+>>>>>>> Stashed changes
             headers={"User-Agent": "ARXOS-news/%s" % VERSION, "Accept": "application/vnd.github+json"})
         d = json.load(urllib.request.urlopen(req, timeout=12))
         if d: return d[0]["sha"], d[0]["commit"]["message"].splitlines()[0][:120]
@@ -42,8 +63,16 @@ def latest(name):
     # fallback: git ls-remote has no rate limit, so detection keeps working even after
     # the API's 60/hr unauthenticated cap is hit (we just lose the commit message).
     try:
+<<<<<<< Updated upstream
         out = subprocess.run(["git", "ls-remote", "https://github.com/%s/%s" % (OWNER, name), "HEAD"],
                              capture_output=True, text=True, timeout=12).stdout.split()
+=======
+        # cwd="/" so git never tries to discover a repo from the caller's directory (a broken
+        # .git there would fail the remote lookup); prompt off so a private URL fails fast.
+        out = subprocess.run(["git", "ls-remote", url, "HEAD"],
+                             capture_output=True, text=True, timeout=12, cwd="/",
+                             env={**os.environ, "GIT_TERMINAL_PROMPT": "0"}).stdout.split()
+>>>>>>> Stashed changes
         if out: return out[0], "new update available"
     except Exception:
         pass
@@ -67,8 +96,8 @@ def main():
     first = not seen
     force = "--notify-all" in sys.argv      # for testing: notify even on first/forced run
     new = 0
-    for name in repos():
-        try: sha, msg = latest(name)
+    for name, url in repos():
+        try: sha, msg = latest(name, url)
         except Exception: continue
         if not sha: continue
         try:
