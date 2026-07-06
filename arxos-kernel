@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# arxos-kernel — fetch / list / install ARXOS kernels from the official GitHub build repo.
+# Each kernel version is a GitHub Release (tag = "<kernel>-<version>", assets = the .pkg.tar.zst).
+# This backs the Control Center Kernels tab: get-latest, version history, and rollback.
+#   arxos-kernel list    <linux-arxos|linux-arxos-zen>          # versions, newest first
+#   arxos-kernel latest  <kernel>                               # newest version tag
+#   arxos-kernel current <kernel>                               # installed version (or empty)
+#   arxos-kernel install <kernel> [version]                     # install latest, or a specific one (rollback)
+set -uo pipefail
+REPO="${ARXOS_KERNEL_REPO:-thearxos/arxos-kernels}"
+API="https://api.github.com/repos/$REPO/releases?per_page=100"
+DL="https://github.com/$REPO/releases/download"
+
+_json(){ curl -fsSL -H "Accept: application/vnd.github+json" "$API" 2>/dev/null; }
+
+list(){   # tags for a kernel, newest first (the API already returns newest-first)
+  _json | python3 -c "import sys,json;k=sys.argv[1];print('\n'.join(r['tag_name'] for r in json.load(sys.stdin) if r.get('tag_name','').startswith(k+'-')))" "$1" 2>/dev/null
+}
+latest(){ list "$1" | head -1; }
+current(){ pacman -Q "$1" 2>/dev/null | awk '{print $2}'; }
+
+install(){
+  local k="$1" tag="${2:-}"
+  [ -n "$tag" ] || tag="$(latest "$k")"
+  [ -n "$tag" ] || { echo "!! no release for $k on $REPO"; return 1; }
+  local ver="${tag#${k}-}" tmp; tmp="$(mktemp -d)"
+  echo ">> fetching $k $ver from $REPO ..."
+  curl -fL --progress-bar -o "$tmp/$k.pkg.tar.zst"      "$DL/$tag/$k-$ver-x86_64.pkg.tar.zst"        || { echo "!! download failed"; return 1; }
+  curl -fL --progress-bar -o "$tmp/$k-hdr.pkg.tar.zst"  "$DL/$tag/$k-headers-$ver-x86_64.pkg.tar.zst" || { echo "!! headers download failed"; return 1; }
+  sudo pacman -U --noconfirm "$tmp/$k.pkg.tar.zst" "$tmp/$k-hdr.pkg.tar.zst" || { echo "!! install failed"; return 1; }
+  sudo mkinitcpio -P; sudo grub-mkconfig -o /boot/grub/grub.cfg
+  rm -rf "$tmp"; echo ">> installed $k $ver — reboot or Set default in the Control Center"
+}
+
+case "${1:-}" in
+  list)    list "${2:?kernel}" ;;
+  latest)  latest "${2:?kernel}" ;;
+  current) current "${2:?kernel}" ;;
+  install) install "${2:?kernel}" "${3:-}" ;;
+  *) echo "usage: arxos-kernel {list|latest|current|install} <linux-arxos|linux-arxos-zen> [version]"; exit 1 ;;
+esac

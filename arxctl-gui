@@ -211,9 +211,6 @@ def net_info():
     except Exception: return None, ""
 
 KERNELS = ["linux-arxos", "linux-arxos-zen", "linux", "linux-lts"]
-# where the Control Center pulls a prebuilt ARXOS kernel package when it isn't in a pacman repo
-# (linux-arxos-zen is rolling / built out-of-band). Public R2 base; overridable via env.
-ARXOS_KPKG_BASE = os.environ.get("ARXOS_KPKG_BASE", "https://pub-e282d46726033d2cb786a6f8522f3ed9.r2.dev/kernels")
 SERVICES = ["NetworkManager","sshd","bluetooth","cups","firewalld","docker","tor-anonkit","systemd-timesyncd"]
 
 class ArxCtl(Gtk.Window):
@@ -408,34 +405,46 @@ class ArxCtl(Gtk.Window):
         d.show_all()
 
     def kernels(self, *_):
-        d, a = self._dialog("Kernels", 500, 430)
+        d, a = self._dialog("Kernels", 540, 470)
         run = sh("uname -r")
         h = Gtk.Label(); h.set_markup("Running:  <span foreground='#5fd17a'><b>%s</b></span>" % run); h.set_xalign(0)
         a.pack_start(h, False, False, 4)
-        # ARXOS kernels ship out-of-band (not in a pacman repo) -> pull the package from R2; stock
-        # kernels come from arx/pacman. Both then rebuild initramfs + GRUB.
-        def get(kk):
+        BASE = ("linux", "linux-lts")   # mainline fallbacks: DKMS + many tools depend on them, never Remove
+        # ARXOS kernels come from the GitHub build repo via `arxos-kernel`; stock kernels via arx.
+        def get(kk, tag=""):
             if kk.startswith("linux-arxos"):
-                return lambda *_: term(
-                    "set -e; cd /tmp; echo 'fetching %s from ARXOS...'; "
-                    "for p in %s %s-headers; do curl -fL --progress-bar -o $p.pkg.tar.zst '%s/'$p'-x86_64.pkg.tar.zst'; done; "
-                    "sudo pacman -U --noconfirm %s-x86_64.pkg.tar.zst %s-headers-x86_64.pkg.tar.zst; "
-                    "sudo mkinitcpio -P; sudo grub-mkconfig -o /boot/grub/grub.cfg; echo; read -rp 'done — enter…'"
-                    % (kk, kk, kk, ARXOS_KPKG_BASE, kk, kk))
+                return lambda *_: term("arxos-kernel install %s %s; echo; read -rp 'done — enter…'" % (kk, tag))
             return lambda *_: term("arx install %s %s-headers; echo; read -rp 'done — enter…'" % (kk, kk))
-        rem = lambda kk: lambda *_: term("arx remove %s %s-headers 2>/dev/null || sudo pacman -R --noconfirm %s %s-headers; echo; read -rp 'done — enter…'" % (kk, kk, kk, kk))
-        # set this kernel as the boot default (its nested Advanced-options GRUB entry)
+        rem = lambda kk: lambda *_: term("sudo pacman -R --noconfirm %s %s-headers; echo; read -rp 'done — enter…'" % (kk, kk))
         setdef = lambda kk: lambda *_: term(
             "cfg=/boot/grub/grub.cfg; sub=$(grep -oE 'gnulinux-advanced-[0-9a-f-]+' \"$cfg\"|head -1); "
             "ent=$(grep -oE 'gnulinux-%s-advanced-[0-9a-f-]+' \"$cfg\"|head -1); "
-            "[ -n \"$ent\" ] && sudo grub-set-default \"$sub>$ent\" && echo 'default kernel -> %s (reboots into it)' || echo 'no GRUB entry - regenerate GRUB first'; "
+            "[ -n \"$ent\" ] && sudo grub-set-default \"$sub>$ent\" && echo 'default kernel -> %s (boots into it next time)' || echo 'no GRUB entry - regenerate GRUB first'; "
             "echo; read -rp 'enter…'" % (kk, kk))
+        def history(kk):   # rollback: list published versions, install any older one
+            def _open(*_):
+                dd, aa = self._dialog("%s — versions" % kk, 400, 380)
+                cur = sh("pacman -Q %s 2>/dev/null" % kk); cur = cur.split()[-1] if cur else ""
+                vers = [t for t in sh("arxos-kernel list %s" % kk).splitlines() if t]
+                if not vers:
+                    aa.pack_start(Gtk.Label(label="No published versions found (check your connection)."), False, False, 0)
+                for tag in vers:
+                    v = tag.split(kk + "-", 1)[-1]
+                    r = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+                    lb = Gtk.Label(label=v + ("  · installed" if v == cur else "")); lb.set_xalign(0); lb.get_style_context().add_class("krow"); r.pack_start(lb, True, True, 0)
+                    if v != cur:
+                        ib = Gtk.Button(label="Install"); ib.connect("clicked", get(kk, tag)); r.pack_start(ib, False, False, 0)
+                    aa.pack_start(r, False, False, 0)
+                self._show(dd)
+            return _open
+        # newest published version per installed ARXOS kernel, to gate the Update button
+        latest = {k: sh("arxos-kernel latest %s" % k) for k in KERNELS if k.startswith("linux-arxos") and sh("pacman -Qq %s 2>/dev/null" % k) == k}
         for k in KERNELS:
             installed = sh("pacman -Qq %s 2>/dev/null" % k) == k
             ver = sh("pacman -Q %s 2>/dev/null" % k); ver = ver.split()[-1] if ver else ""
             tag = "" if k == "linux" else k.split("-", 1)[1]
             running = installed and ((tag and tag in run) or (k == "linux" and not any(x in run for x in ("arxos","zen","lts","hardened"))))
-            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
             lbl = Gtk.Label(label=k); lbl.set_xalign(0); lbl.set_size_request(120,-1); lbl.get_style_context().add_class("krow")
             if running: lbl.get_style_context().add_class("krun")
             row.pack_start(lbl, False, False, 0)
@@ -444,17 +453,24 @@ class ArxCtl(Gtk.Window):
             if not installed:
                 b = Gtk.Button(label=("Get" if k.startswith("linux-arxos") else "Install")); b.connect("clicked", get(k)); row.pack_start(b, False, False, 0)
             else:
-                if not running:
-                    sb = Gtk.Button(label="Set default"); sb.get_style_context().add_class("suggested-action"); sb.connect("clicked", setdef(k)); row.pack_start(sb, False, False, 0)
+                # Set default for EVERY installed kernel (running included - running != the boot default)
+                sb = Gtk.Button(label="Set default"); sb.connect("clicked", setdef(k)); row.pack_start(sb, False, False, 0)
+                # Update ONLY when a newer version is actually published
+                lt = latest.get(k, ""); ltver = lt.split(k + "-", 1)[-1] if lt else ""
+                if k.startswith("linux-arxos") and ltver and ltver != ver:
+                    ub = Gtk.Button(label="Update"); ub.get_style_context().add_class("suggested-action"); ub.connect("clicked", get(k)); row.pack_start(ub, False, False, 0)
+                if k.startswith("linux-arxos"):
+                    hb = Gtk.Button(label="History"); hb.connect("clicked", history(k)); row.pack_start(hb, False, False, 0)
+                # Remove only ARXOS kernels that are not running (never the base linux/lts - deps break)
+                if not running and k not in BASE and k.startswith("linux-arxos"):
                     xb = Gtk.Button(label="Remove"); xb.connect("clicked", rem(k)); row.pack_start(xb, False, False, 0)
-                else:
-                    ub = Gtk.Button(label="Update"); ub.connect("clicked", get(k)); row.pack_start(ub, False, False, 0)
             a.pack_start(row, False, False, 0)
         sep = Gtk.Box(); sep.get_style_context().add_class("sep"); sep.set_margin_top(6); sep.set_margin_bottom(2); a.pack_start(sep, False, False, 0)
-        gz = Gtk.Button(label="Get the latest linux-arxos-zen  (rolling, max-performance)"); gz.connect("clicked", get("linux-arxos-zen")); a.pack_start(gz, False, False, 0)
+        if sh("pacman -Qq linux-arxos-zen 2>/dev/null") != "linux-arxos-zen":
+            gz = Gtk.Button(label="Get linux-arxos-zen  (rolling, max-performance)"); gz.get_style_context().add_class("suggested-action"); gz.connect("clicked", get("linux-arxos-zen")); a.pack_start(gz, False, False, 0)
         ib = Gtk.Button(label="Rebuild initramfs  (mkinitcpio -P)"); ib.connect("clicked", lambda *_: term("sudo mkinitcpio -P; echo; read -rp 'done — enter…'")); a.pack_start(ib, False, False, 0)
         rg = Gtk.Button(label="Regenerate GRUB config"); rg.connect("clicked", lambda *_: term("sudo grub-mkconfig -o /boot/grub/grub.cfg; echo; read -rp 'done — enter…'")); a.pack_start(rg, False, False, 0)
-        note = Gtk.Label(label="linux-arxos = pinned default · linux-arxos-zen = rolling, max-performance."); note.set_xalign(0)
+        note = Gtk.Label(label="linux-arxos = pinned default · linux-arxos-zen = rolling, max-performance · History rolls back to any published build."); note.set_xalign(0); note.set_line_wrap(True)
         note.get_style_context().add_class("subtitle"); note.set_margin_top(4); a.pack_start(note, False, False, 0)
         self._show(d)
 
