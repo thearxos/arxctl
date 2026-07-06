@@ -13,8 +13,9 @@ DL="https://github.com/$REPO/releases/download"
 
 _json(){ curl -fsSL -H "Accept: application/vnd.github+json" "$API" 2>/dev/null; }
 
-list(){   # tags for a kernel, newest first (the API already returns newest-first)
-  _json | python3 -c "import sys,json;k=sys.argv[1];print('\n'.join(r['tag_name'] for r in json.load(sys.stdin) if r.get('tag_name','').startswith(k+'-')))" "$1" 2>/dev/null
+list(){   # tags for a kernel, newest first; require a DIGIT right after "<k>-" so linux-arxos does
+          # not also match linux-arxos-zen (whose version part starts with "zen")
+  _json | python3 -c "import sys,json;k=sys.argv[1];print('\n'.join(r['tag_name'] for r in json.load(sys.stdin) if r.get('tag_name','').startswith(k+'-') and r['tag_name'][len(k)+1:len(k)+2].isdigit()))" "$1" 2>/dev/null
 }
 latest(){ list "$1" | head -1; }
 current(){ pacman -Q "$1" 2>/dev/null | awk '{print $2}'; }
