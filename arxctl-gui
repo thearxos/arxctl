@@ -246,6 +246,7 @@ class ArxCtl(Gtk.Window):
             ("document-save","Snapshots", self.snapshots),
             ("preferences-system","Services", self.services),
             ("preferences-desktop-wallpaper","Wallpaper", self.wallpaper),
+            ("network-server","Virtual Machines", self.virtmachines),
             ("dialog-information","Info", self.sysinfo),
         ]   # "Update" now runs the unified `arx update` (system packages + ARXOS tools);
             # the old separate "Self-update" card is folded into it.
@@ -315,8 +316,10 @@ class ArxCtl(Gtk.Window):
             bbs = Gtk.Switch(); bbs.set_active(sh("cat /proc/sys/kernel/sched_bore") == "1"); bbs.set_valign(Gtk.Align.CENTER)
             bbs.connect("notify::active", lambda s, _g: priv("sysctl -w kernel.sched_bore=%d" % (1 if s.get_active() else 0)))
             hbb.pack_start(bbs, False, False, 0); a.pack_start(hbb, False, False, 0)
+            bd = Gtk.Label(label="Burst-Oriented Response Enhancer — favours interactive tasks for a snappier desktop under load."); bd.set_xalign(0); bd.set_line_wrap(True); bd.set_margin_bottom(4); bd.get_style_context().add_class("statlabel"); a.pack_start(bd, False, False, 0)
         swv = sh("cat /proc/sys/vm/swappiness") or "60"
         sml = Gtk.Label(label="Memory swappiness: %s" % swv); sml.set_xalign(0); sml.get_style_context().add_class("statlabel"); sml.set_margin_top(4); a.pack_start(sml, False, False, 0)
+        swd = Gtk.Label(label="How eagerly the kernel moves memory to swap. Lower keeps more in RAM (snappier); higher frees RAM sooner."); swd.set_xalign(0); swd.set_line_wrap(True); swd.set_margin_bottom(3); swd.get_style_context().add_class("statlabel"); a.pack_start(swd, False, False, 0)
         swrow = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         for lab, val in (("Desktop 10", 10), ("Default 60", 60), ("Aggressive 100", 100)):
             sbb = Gtk.Button(label=lab); sbb.connect("clicked", (lambda v: lambda *_: priv("sysctl -w vm.swappiness=%d" % v))(val)); swrow.pack_start(sbb, True, True, 0)
@@ -331,6 +334,8 @@ class ArxCtl(Gtk.Window):
                 "sysctl -w vm.swappiness=%d kernel.sched_bore=%d 2>/dev/null" % (gg, gg, ss, bb)))(g, s, b))
             prow.pack_start(pbb, True, True, 0)
         a.pack_start(prow, False, False, 0)
+        pd = Gtk.Label(label="Max Performance: max clocks + minimal swap. Balanced: modern default. Battery: coolest, longest runtime.")
+        pd.set_xalign(0); pd.set_line_wrap(True); pd.set_margin_top(3); pd.get_style_context().add_class("statlabel"); a.pack_start(pd, False, False, 0)
         self._show(d)
 
     def wallpaper(self, *_):
@@ -345,6 +350,35 @@ class ArxCtl(Gtk.Window):
                 buttons=Gtk.ButtonsType.YES_NO, text="Snapshot manager (Timeshift) not installed.\nInstall it now?")
             r = d.run(); d.destroy()
             if r == Gtk.ResponseType.YES: term("arx install timeshift; echo; read -rp 'installed — enter…'")
+
+    def virtmachines(self, *_):
+        d, a = self._dialog("Virtual Machines", 530, 430)
+        intro = Gtk.Label(label="Install a full virtualization host + all drivers, no tutorial-hunting. Optional; nothing here ships preinstalled.")
+        intro.set_xalign(0); intro.set_line_wrap(True); intro.get_style_context().add_class("subtitle"); a.pack_start(intro, False, False, 4)
+        backs = [
+            ("QEMU / KVM", "libvirt", "libvirt + virt-manager + qemu-full + UEFI + spice/virtio guest tools",
+             "arx install qemu-full libvirt virt-manager virt-viewer edk2-ovmf dnsmasq iptables-nft bridge-utils openbsd-netcat swtpm spice-vdagent; "
+             "sudo systemctl enable --now libvirtd.socket libvirtd 2>/dev/null; sudo usermod -aG libvirt,kvm \"$USER\""),
+            ("VirtualBox", "virtualbox", "host + dkms modules (rebuild for the ARXOS kernel) + guest ISO",
+             "arx install virtualbox virtualbox-host-dkms virtualbox-guest-iso $(uname -r | grep -q arxos && echo linux-arxos-headers || echo linux-headers); "
+             "sudo modprobe vboxdrv 2>/dev/null; sudo usermod -aG vboxusers \"$USER\""),
+            ("VMware Workstation", "vmware-workstation", "Workstation host + vmmon/vmnet modules + services (AUR)",
+             "arx install vmware-workstation; sudo systemctl enable --now vmware-networks vmware-usbarbitrator 2>/dev/null; "
+             "sudo vmware-modconfig --console --install-all 2>/dev/null || echo 'note: vmmon/vmnet may need the community kernel patch'"),
+        ]
+        for name, pkg, desc, cmd in backs:
+            row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2); row.get_style_context().add_class("card"); row.set_margin_top(4)
+            for m in ("set_margin_start","set_margin_end","set_margin_top","set_margin_bottom"): getattr(row, m)(9)
+            top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            nl = Gtk.Label(label=name); nl.set_xalign(0); nl.get_style_context().add_class("cardtitle"); top.pack_start(nl, True, True, 0)
+            installed = sh("pacman -Qq %s 2>/dev/null" % pkg) == pkg
+            btn = Gtk.Button(label=("Reinstall" if installed else "Install"))
+            if not installed: btn.get_style_context().add_class("suggested-action")
+            btn.connect("clicked", (lambda c: lambda *_: term("%s; echo; read -rp 'done - enter...'" % c))(cmd))
+            top.pack_start(btn, False, False, 0); row.pack_start(top, False, False, 0)
+            dl = Gtk.Label(label=desc + ("   · installed" if installed else "")); dl.set_xalign(0); dl.set_line_wrap(True); dl.get_style_context().add_class("statlabel"); row.pack_start(dl, False, False, 0)
+            a.pack_start(row, False, False, 0)
+        self._show(d)
 
     def _dialog(self, title, w=420, h=380):
         # Non-modal: a panel that does NOT spin a blocking nested loop, so output
