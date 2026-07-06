@@ -199,7 +199,10 @@ def net_info():
         a = open(NET).read().split(); return (a[0] == "1"), (a[1] if len(a) > 1 else "")
     except Exception: return None, ""
 
-KERNELS = ["linux", "linux-zen", "linux-lts", "linux-hardened"]
+KERNELS = ["linux-arxos", "linux-arxos-zen", "linux", "linux-lts"]
+# where the Control Center pulls a prebuilt ARXOS kernel package when it isn't in a pacman repo
+# (linux-arxos-zen is rolling / built out-of-band). Public R2 base; overridable via env.
+ARXOS_KPKG_BASE = os.environ.get("ARXOS_KPKG_BASE", "https://pub-e282d46726033d2cb786a6f8522f3ed9.r2.dev/kernels")
 SERVICES = ["NetworkManager","sshd","bluetooth","cups","firewalld","docker","tor-anonkit","systemd-timesyncd"]
 
 class ArxCtl(Gtk.Window):
@@ -303,6 +306,31 @@ class ArxCtl(Gtk.Window):
             bsw = Gtk.Switch(); bsw.set_active(sh("cat " + boost) == "1"); bsw.set_valign(Gtk.Align.CENTER)
             bsw.connect("notify::active", lambda s, _g: priv("echo %d > %s" % (1 if s.get_active() else 0, boost)))
             hb.pack_start(bsw, False, False, 0); a.pack_start(hb, False, False, 0)
+        # ---- live kernel tuning (linux-arxos exposes BORE + vm knobs) ----
+        s3 = Gtk.Box(); s3.get_style_context().add_class("sep"); s3.set_margin_top(8); s3.set_margin_bottom(6); a.pack_start(s3, False, False, 0)
+        kl = Gtk.Label(label="KERNEL TUNING"); kl.set_xalign(0); kl.get_style_context().add_class("statlabel"); a.pack_start(kl, False, False, 0)
+        if sh("test -e /proc/sys/kernel/sched_bore && echo y") == "y":
+            hbb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            bbl = Gtk.Label(label="BORE scheduler"); bbl.set_xalign(0); bbl.get_style_context().add_class("krow"); hbb.pack_start(bbl, True, True, 0)
+            bbs = Gtk.Switch(); bbs.set_active(sh("cat /proc/sys/kernel/sched_bore") == "1"); bbs.set_valign(Gtk.Align.CENTER)
+            bbs.connect("notify::active", lambda s, _g: priv("sysctl -w kernel.sched_bore=%d" % (1 if s.get_active() else 0)))
+            hbb.pack_start(bbs, False, False, 0); a.pack_start(hbb, False, False, 0)
+        swv = sh("cat /proc/sys/vm/swappiness") or "60"
+        sml = Gtk.Label(label="Memory swappiness: %s" % swv); sml.set_xalign(0); sml.get_style_context().add_class("statlabel"); sml.set_margin_top(4); a.pack_start(sml, False, False, 0)
+        swrow = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        for lab, val in (("Desktop 10", 10), ("Default 60", 60), ("Aggressive 100", 100)):
+            sbb = Gtk.Button(label=lab); sbb.connect("clicked", (lambda v: lambda *_: priv("sysctl -w vm.swappiness=%d" % v))(val)); swrow.pack_start(sbb, True, True, 0)
+        a.pack_start(swrow, False, False, 0)
+        pl = Gtk.Label(label="QUICK PROFILE  (governor + memory + BORE)"); pl.set_xalign(0); pl.get_style_context().add_class("statlabel"); pl.set_margin_top(8); a.pack_start(pl, False, False, 0)
+        prow = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        for name, (g, s, b) in (("Max Performance", ("performance", 10, 1)), ("Balanced", ("schedutil", 60, 1)), ("Battery", ("powersave", 100, 1))):
+            pbb = Gtk.Button(label=name)
+            pbb.connect("clicked", (lambda gg, ss, bb: lambda *_: priv(
+                "for c in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo %s > \"$c\" 2>/dev/null; done; "
+                "command -v cpupower >/dev/null && cpupower frequency-set -g %s >/dev/null 2>&1; "
+                "sysctl -w vm.swappiness=%d kernel.sched_bore=%d 2>/dev/null" % (gg, gg, ss, bb)))(g, s, b))
+            prow.pack_start(pbb, True, True, 0)
+        a.pack_start(prow, False, False, 0)
         self._show(d)
 
     def wallpaper(self, *_):
@@ -334,34 +362,53 @@ class ArxCtl(Gtk.Window):
         d.show_all()
 
     def kernels(self, *_):
-        d, a = self._dialog("Kernels", 470, 390)
+        d, a = self._dialog("Kernels", 500, 430)
         run = sh("uname -r")
         h = Gtk.Label(); h.set_markup("Running:  <span foreground='#5fd17a'><b>%s</b></span>" % run); h.set_xalign(0)
         a.pack_start(h, False, False, 4)
-        inst = lambda kk: lambda *_: term("arx install %s %s-headers; echo; read -rp 'done — enter…'" % (kk, kk))
-        rem  = lambda kk: lambda *_: term("arx remove %s %s-headers; echo; read -rp 'done — enter…'" % (kk, kk))
+        # ARXOS kernels ship out-of-band (not in a pacman repo) -> pull the package from R2; stock
+        # kernels come from arx/pacman. Both then rebuild initramfs + GRUB.
+        def get(kk):
+            if kk.startswith("linux-arxos"):
+                return lambda *_: term(
+                    "set -e; cd /tmp; echo 'fetching %s from ARXOS...'; "
+                    "for p in %s %s-headers; do curl -fL --progress-bar -o $p.pkg.tar.zst '%s/'$p'-x86_64.pkg.tar.zst'; done; "
+                    "sudo pacman -U --noconfirm %s-x86_64.pkg.tar.zst %s-headers-x86_64.pkg.tar.zst; "
+                    "sudo mkinitcpio -P; sudo grub-mkconfig -o /boot/grub/grub.cfg; echo; read -rp 'done — enter…'"
+                    % (kk, kk, kk, ARXOS_KPKG_BASE, kk, kk))
+            return lambda *_: term("arx install %s %s-headers; echo; read -rp 'done — enter…'" % (kk, kk))
+        rem = lambda kk: lambda *_: term("arx remove %s %s-headers 2>/dev/null || sudo pacman -R --noconfirm %s %s-headers; echo; read -rp 'done — enter…'" % (kk, kk, kk, kk))
+        # set this kernel as the boot default (its nested Advanced-options GRUB entry)
+        setdef = lambda kk: lambda *_: term(
+            "cfg=/boot/grub/grub.cfg; sub=$(grep -oE 'gnulinux-advanced-[0-9a-f-]+' \"$cfg\"|head -1); "
+            "ent=$(grep -oE 'gnulinux-%s-advanced-[0-9a-f-]+' \"$cfg\"|head -1); "
+            "[ -n \"$ent\" ] && sudo grub-set-default \"$sub>$ent\" && echo 'default kernel -> %s (reboots into it)' || echo 'no GRUB entry - regenerate GRUB first'; "
+            "echo; read -rp 'enter…'" % (kk, kk))
         for k in KERNELS:
             installed = sh("pacman -Qq %s 2>/dev/null" % k) == k
             ver = sh("pacman -Q %s 2>/dev/null" % k); ver = ver.split()[-1] if ver else ""
             tag = "" if k == "linux" else k.split("-", 1)[1]
-            running = installed and ((tag and tag in run) or (k == "linux" and not any(x in run for x in ("zen","lts","hardened"))))
+            running = installed and ((tag and tag in run) or (k == "linux" and not any(x in run for x in ("arxos","zen","lts","hardened"))))
             row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-            lbl = Gtk.Label(label=k); lbl.set_xalign(0); lbl.set_size_request(108,-1); lbl.get_style_context().add_class("krow")
+            lbl = Gtk.Label(label=k); lbl.set_xalign(0); lbl.set_size_request(120,-1); lbl.get_style_context().add_class("krow")
             if running: lbl.get_style_context().add_class("krun")
             row.pack_start(lbl, False, False, 0)
             st = Gtk.Label(label=(ver + ("  · running" if running else "") if installed else "not installed")); st.set_xalign(0); st.get_style_context().add_class("statlabel")
             row.pack_start(st, True, True, 0)
             if not installed:
-                b = Gtk.Button(label="Install"); b.connect("clicked", inst(k)); row.pack_start(b, False, False, 0)
+                b = Gtk.Button(label=("Get" if k.startswith("linux-arxos") else "Install")); b.connect("clicked", get(k)); row.pack_start(b, False, False, 0)
             else:
-                rb = Gtk.Button(label="Reinstall"); rb.connect("clicked", inst(k)); row.pack_start(rb, False, False, 0)
                 if not running:
+                    sb = Gtk.Button(label="Set default"); sb.get_style_context().add_class("suggested-action"); sb.connect("clicked", setdef(k)); row.pack_start(sb, False, False, 0)
                     xb = Gtk.Button(label="Remove"); xb.connect("clicked", rem(k)); row.pack_start(xb, False, False, 0)
+                else:
+                    ub = Gtk.Button(label="Update"); ub.connect("clicked", get(k)); row.pack_start(ub, False, False, 0)
             a.pack_start(row, False, False, 0)
         sep = Gtk.Box(); sep.get_style_context().add_class("sep"); sep.set_margin_top(6); sep.set_margin_bottom(2); a.pack_start(sep, False, False, 0)
+        gz = Gtk.Button(label="Get the latest linux-arxos-zen  (rolling, max-performance)"); gz.connect("clicked", get("linux-arxos-zen")); a.pack_start(gz, False, False, 0)
         ib = Gtk.Button(label="Rebuild initramfs  (mkinitcpio -P)"); ib.connect("clicked", lambda *_: term("sudo mkinitcpio -P; echo; read -rp 'done — enter…'")); a.pack_start(ib, False, False, 0)
         rg = Gtk.Button(label="Regenerate GRUB config"); rg.connect("clicked", lambda *_: term("sudo grub-mkconfig -o /boot/grub/grub.cfg; echo; read -rp 'done — enter…'")); a.pack_start(rg, False, False, 0)
-        note = Gtk.Label(label="Switch the default kernel at boot via the GRUB menu (Advanced options)."); note.set_xalign(0)
+        note = Gtk.Label(label="linux-arxos = pinned default · linux-arxos-zen = rolling, max-performance."); note.set_xalign(0)
         note.get_style_context().add_class("subtitle"); note.set_margin_top(4); a.pack_start(note, False, False, 0)
         self._show(d)
 
