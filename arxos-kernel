@@ -9,7 +9,8 @@
 set -uo pipefail
 REPO="${ARXOS_KERNEL_REPO:-thearxos/arxos-kernels}"
 API="https://api.github.com/repos/$REPO/releases?per_page=100"
-DL="https://github.com/$REPO/releases/download"
+DL="https://github.com/$REPO/releases/download"                # full history: every version (rollback)
+R2_DL="${ARXOS_KERNEL_R2:-https://pub-d5ff3efb1d204998aa120ded02d070b9.r2.dev/kernels}"  # latest only (fast)
 
 _json(){ curl -fsSL -H "Accept: application/vnd.github+json" "$API" 2>/dev/null; }
 
@@ -25,9 +26,12 @@ install(){
   [ -n "$tag" ] || tag="$(latest "$k")"
   [ -n "$tag" ] || { echo "!! no release for $k on $REPO"; return 1; }
   local ver="${tag#${k}-}" tmp; tmp="$(mktemp -d)"
-  echo ">> fetching $k $ver from $REPO ..."
-  curl -fL --progress-bar -o "$tmp/$k.pkg.tar.zst"      "$DL/$tag/$k-$ver-x86_64.pkg.tar.zst"        || { echo "!! download failed"; return 1; }
-  curl -fL --progress-bar -o "$tmp/$k-hdr.pkg.tar.zst"  "$DL/$tag/$k-headers-$ver-x86_64.pkg.tar.zst" || { echo "!! headers download failed"; return 1; }
+  # latest lives on R2 (fast, pruned-to-latest); older versions (rollback) come from GitHub's full history
+  local src base
+  if [ "$tag" = "$(latest "$k")" ]; then src=R2; base="$R2_DL"; else src=GitHub; base="$DL/$tag"; fi
+  echo ">> fetching $k $ver from $src ..."
+  curl -fL --progress-bar -o "$tmp/$k.pkg.tar.zst"      "$base/$k-$ver-x86_64.pkg.tar.zst"        || { echo "!! download failed ($src)"; return 1; }
+  curl -fL --progress-bar -o "$tmp/$k-hdr.pkg.tar.zst"  "$base/$k-headers-$ver-x86_64.pkg.tar.zst" || { echo "!! headers download failed ($src)"; return 1; }
   sudo pacman -U --noconfirm "$tmp/$k.pkg.tar.zst" "$tmp/$k-hdr.pkg.tar.zst" || { echo "!! install failed"; return 1; }
   sudo mkinitcpio -P; sudo grub-mkconfig -o /boot/grub/grub.cfg
   rm -rf "$tmp"; echo ">> installed $k $ver — reboot or Set default in the Control Center"
