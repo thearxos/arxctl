@@ -1,46 +1,96 @@
 #!/usr/bin/env bash
-# arxos-kernel — fetch / list / install ARXOS kernels from the official GitHub build repo.
-# Each kernel version is a GitHub Release (tag = "<kernel>-<version>", assets = the .pkg.tar.zst).
-# This backs the Control Center Kernels tab: get-latest, version history, and rollback.
-#   arxos-kernel list    <linux-arxos|linux-arxos-zen>          # versions, newest first
-#   arxos-kernel latest  <kernel>                               # newest version tag
-#   arxos-kernel current <kernel>                               # installed version (or empty)
-#   arxos-kernel install <kernel> [version]                     # install latest, or a specific one (rollback)
+# arxos-kernel — ARXOS kernel history + install/rollback, driven by the public
+# arxos-kernels manifest (kernels.json). Backs the Control Center Kernels tab.
+#   arxos-kernel list    <flavor>            # versions, newest first, with status
+#   arxos-kernel history <flavor>            # plain-English feature diff per version
+#   arxos-kernel latest  <flavor>            # the current (newest) version
+#   arxos-kernel current <flavor>            # installed version (or empty)
+#   arxos-kernel install <flavor> [version]  # install latest, or a specific one (rollback)
+# The manifest is the source of truth (history, download URLs, sha256). Binaries:
+# current from R2 (fast), retired from GitHub Releases history. Every download is
+# checked against the manifest sha256 before it installs.
 set -uo pipefail
-REPO="${ARXOS_KERNEL_REPO:-thearxos/arxos-kernels}"
-API="https://api.github.com/repos/$REPO/releases?per_page=100"
-DL="https://github.com/$REPO/releases/download"                # full history: every version (rollback)
-R2_DL="${ARXOS_KERNEL_R2:-https://pub-d5ff3efb1d204998aa120ded02d070b9.r2.dev/kernels}"  # latest only (fast)
+FLAVOR_DEFAULT="linux-arxos"
+MANIFEST_URL="${ARXOS_KERNELS_MANIFEST:-https://raw.githubusercontent.com/thearxos/arxos-kernels/main/kernels.json}"
+MANIFEST_LOCAL="${ARXOS_KERNELS_LOCAL:-/usr/share/arxos/kernels.json}"
 
-_json(){ curl -fsSL -H "Accept: application/vnd.github+json" "$API" 2>/dev/null; }
+_manifest(){ curl -fsSL "$MANIFEST_URL" 2>/dev/null || cat "$MANIFEST_LOCAL" 2>/dev/null; }
 
-list(){   # tags for a kernel, newest first; require a DIGIT right after "<k>-" so linux-arxos does
-          # not also match linux-arxos-zen (whose version part starts with "zen")
-  _json | python3 -c "import sys,json;k=sys.argv[1];print('\n'.join(r['tag_name'] for r in json.load(sys.stdin) if r.get('tag_name','').startswith(k+'-') and r['tag_name'][len(k)+1:len(k)+2].isdigit()))" "$1" 2>/dev/null
-}
-latest(){ list "$1" | head -1; }
-current(){ pacman -Q "$1" 2>/dev/null | awk '{print $2}'; }
+_py(){ local code="$1"; shift; _manifest | python3 -c "$code" "$@" 2>/dev/null; }
+
+list(){ _py '
+import sys,json
+m=json.load(sys.stdin);f=sys.argv[1]
+for k in m.get("kernels",[]):
+    if k["flavor"]==f: print(k["version"] + "\t" + k["status"])
+' "${1:-$FLAVOR_DEFAULT}"; }
+
+history(){ _py '
+import sys,json
+m=json.load(sys.stdin);f=sys.argv[1]
+print("# " + f + " history\n")
+for k in m.get("kernels",[]):
+    if k["flavor"]!=f: continue
+    print(k["version"] + "  (" + k["status"] + ")  base: " + k["upstream"] + "  " + k["date"])
+    print("  " + k["changes"] + "\n")
+print("What ARXOS adds to every kernel:")
+for t in m.get("tunes",[]): print("  - " + t["name"] + ": " + t["advantage"])
+' "${1:-$FLAVOR_DEFAULT}"; }
+
+latest(){ _py '
+import sys,json
+m=json.load(sys.stdin);f=sys.argv[1]
+print(m.get("flavors",{}).get(f,{}).get("current",""))
+' "${1:-$FLAVOR_DEFAULT}"; }
+
+current(){ pacman -Q "${1:-$FLAVOR_DEFAULT}" 2>/dev/null | awk '{print $2}'; }
+
+# emit: base_url<TAB>kfile<TAB>ksha<TAB>hfile<TAB>hsha<TAB>status  for flavor+version
+_resolve(){ _py '
+import sys,json
+m=json.load(sys.stdin);f,ver=sys.argv[1],sys.argv[2]
+if not ver: ver=m.get("flavors",{}).get(f,{}).get("current","")
+for k in m.get("kernels",[]):
+    if k["flavor"]==f and k["version"]==ver:
+        u=k.get("urls",{}); a=k["artifacts"]
+        base=u.get("r2") if (k["status"]=="current" and u.get("r2")) else u.get("github")
+        print("\t".join([base or "", a["kernel"]["file"], a["kernel"]["sha256"] or "",
+                          a["headers"]["file"], a["headers"]["sha256"] or "", k["status"]]))
+        break
+' "$1" "$2"; }
 
 install(){
-  local k="$1" tag="${2:-}"
-  [ -n "$tag" ] || tag="$(latest "$k")"
-  [ -n "$tag" ] || { echo "!! no release for $k on $REPO"; return 1; }
-  local ver="${tag#${k}-}" tmp; tmp="$(mktemp -d)"
-  # latest lives on R2 (fast, pruned-to-latest); older versions (rollback) come from GitHub's full history
-  local src base
-  if [ "$tag" = "$(latest "$k")" ]; then src=R2; base="$R2_DL"; else src=GitHub; base="$DL/$tag"; fi
-  echo ">> fetching $k $ver from $src ..."
-  curl -fL --progress-bar -o "$tmp/$k.pkg.tar.zst"      "$base/$k-$ver-x86_64.pkg.tar.zst"        || { echo "!! download failed ($src)"; return 1; }
-  curl -fL --progress-bar -o "$tmp/$k-hdr.pkg.tar.zst"  "$base/$k-headers-$ver-x86_64.pkg.tar.zst" || { echo "!! headers download failed ($src)"; return 1; }
-  sudo pacman -U --noconfirm "$tmp/$k.pkg.tar.zst" "$tmp/$k-hdr.pkg.tar.zst" || { echo "!! install failed"; return 1; }
-  sudo mkinitcpio -P; sudo grub-mkconfig -o /boot/grub/grub.cfg
-  rm -rf "$tmp"; echo ">> installed $k $ver — reboot or Set default in the Control Center"
+  local f="${1:-$FLAVOR_DEFAULT}" ver="${2:-}"
+  [ -n "$ver" ] || ver="$(latest "$f")"
+  [ -n "$ver" ] || { echo "!! no version for $f in the manifest"; return 1; }
+  local row; row="$(_resolve "$f" "$ver")"
+  [ -n "$row" ] || { echo "!! $f $ver is not in the manifest"; return 1; }
+  IFS=$'\t' read -r base kfile ksha hfile hsha status <<<"$row"
+  [ -n "$base" ] || { echo "!! no download URL for $f $ver"; return 1; }
+  local tmp; tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' RETURN
+  echo ">> fetching $f $ver ($status) from ${base%%/kernels/*}..."
+  curl -fL --progress-bar -o "$tmp/$kfile" "$base$kfile" || { echo "!! kernel download failed"; return 1; }
+  curl -fL --progress-bar -o "$tmp/$hfile" "$base$hfile" || { echo "!! headers download failed"; return 1; }
+  # verify sha256 from the manifest (§4.8). If the manifest has no hash (archived
+  # entry not re-hashed), warn rather than install blind.
+  _check(){ local file="$1" want="$2"; [ -n "$want" ] || { echo "!! no sha256 in manifest for $file — refusing to install unverified"; return 1; }
+            local got; got="$(sha256sum "$tmp/$file" | cut -d' ' -f1)"
+            [ "$got" = "$want" ] || { echo "!! sha256 MISMATCH for $file"; echo "   want $want"; echo "   got  $got"; return 1; }
+            echo "   verified $file"; }
+  _check "$kfile" "$ksha" || return 1
+  _check "$hfile" "$hsha" || return 1
+  # hand off to arx if present (the orchestrator), else pacman -U directly
+  if command -v arx >/dev/null 2>&1; then arx install "$tmp/$kfile" "$tmp/$hfile" || return 1
+  else sudo pacman -U --noconfirm "$tmp/$kfile" "$tmp/$hfile" || return 1; fi
+  sudo mkinitcpio -P; sudo grub-mkconfig -o /boot/grub/grub.cfg 2>/dev/null || true
+  echo ">> installed $f $ver — reboot to use it (or Set default in the Control Center)"
 }
 
 case "${1:-}" in
-  list)    list "${2:?kernel}" ;;
-  latest)  latest "${2:?kernel}" ;;
-  current) current "${2:?kernel}" ;;
-  install) install "${2:?kernel}" "${3:-}" ;;
-  *) echo "usage: arxos-kernel {list|latest|current|install} <linux-arxos|linux-arxos-zen> [version]"; exit 1 ;;
+  list)    list "${2:-}" ;;
+  history) history "${2:-}" ;;
+  latest)  latest "${2:-}" ;;
+  current) current "${2:-}" ;;
+  install) install "${2:-}" "${3:-}" ;;
+  *) echo "usage: arxos-kernel {list|history|latest|current|install} <flavor> [version]"; exit 1 ;;
 esac
