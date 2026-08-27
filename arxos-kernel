@@ -1,23 +1,30 @@
 #!/usr/bin/env bash
-# arxos-kernel — ARXOS kernel history + install/rollback, driven by the public
+# arxos-kernel — ArxOS kernel history + install/remove, driven by the public
 # arxos-kernels manifest (kernels.json). Backs the Control Center Kernels tab.
-#   arxos-kernel list    <flavor>            # versions, newest first, with status
+#
+# User-facing verbs (mirror `arx kernel`):
+#   arxos-kernel list                        # every published kernel (flavor version status)
+#   arxos-kernel install <flavor> [version]  # download + verify + install kernel + headers
+#   arxos-kernel remove  <flavor>            # uninstall a kernel + headers (safely)
+# GUI/parse verbs (used by the Control Center; stable machine output):
 #   arxos-kernel history <flavor>            # plain-English feature diff per version
-#   arxos-kernel latest  <flavor>            # the current (newest) version
+#   arxos-kernel latest  <flavor>            # the current (newest) version string
 #   arxos-kernel current <flavor>            # installed version (or empty)
-#   arxos-kernel install <flavor> [version]  # install latest, or a specific one (rollback)
-# The manifest is the source of truth (history, download URLs, sha256). Binaries:
-# current from R2 (fast), retired from GitHub Releases history. Every download is
-# checked against the manifest sha256 before it installs.
+#
+# The manifest is the source of truth (history, download URLs, sha256). When `arx`
+# is present, install/remove delegate to the native `arx kernel` (fast, sha256
+# fail-closed, running/last-kernel guards). Without `arx`, a pure-bash path runs so
+# the tool still works on a system that has no arx-core yet.
 set -uo pipefail
 FLAVOR_DEFAULT="linux-arxos"
 MANIFEST_URL="${ARXOS_KERNELS_MANIFEST:-https://raw.githubusercontent.com/thearxos/arxos-kernels/main/kernels.json}"
 MANIFEST_LOCAL="${ARXOS_KERNELS_LOCAL:-/usr/share/arxos/kernels.json}"
 
 _manifest(){ curl -fsSL "$MANIFEST_URL" 2>/dev/null || cat "$MANIFEST_LOCAL" 2>/dev/null; }
-
 _py(){ local code="$1"; shift; _manifest | python3 -c "$code" "$@" 2>/dev/null; }
+_have_arx(){ command -v arx >/dev/null 2>&1; }
 
+# ---- machine-parseable views (stable for the Control Center) ----
 list(){ _py '
 import sys,json
 m=json.load(sys.stdin);f=sys.argv[1]
@@ -33,7 +40,7 @@ for k in m.get("kernels",[]):
     if k["flavor"]!=f: continue
     print(k["version"] + "  (" + k["status"] + ")  base: " + k["upstream"] + "  " + k["date"])
     print("  " + k["changes"] + "\n")
-print("What ARXOS adds to every kernel:")
+print("What ArxOS adds to every kernel:")
 for t in m.get("tunes",[]): print("  - " + t["name"] + ": " + t["advantage"])
 ' "${1:-$FLAVOR_DEFAULT}"; }
 
@@ -59,7 +66,8 @@ for k in m.get("kernels",[]):
         break
 ' "$1" "$2"; }
 
-install(){
+# ---- pure-bash install fallback (only used when arx is absent) ----
+_install_bash(){
   local f="${1:-$FLAVOR_DEFAULT}" ver="${2:-}"
   [ -n "$ver" ] || ver="$(latest "$f")"
   [ -n "$ver" ] || { echo "!! no version for $f in the manifest"; return 1; }
@@ -68,22 +76,37 @@ install(){
   IFS=$'\t' read -r base kfile ksha hfile hsha status <<<"$row"
   [ -n "$base" ] || { echo "!! no download URL for $f $ver"; return 1; }
   local tmp; tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' RETURN
-  echo ">> fetching $f $ver ($status) from ${base%%/kernels/*}..."
+  echo ">> fetching $f $ver ($status)..."
   curl -fL --progress-bar -o "$tmp/$kfile" "$base$kfile" || { echo "!! kernel download failed"; return 1; }
   curl -fL --progress-bar -o "$tmp/$hfile" "$base$hfile" || { echo "!! headers download failed"; return 1; }
-  # verify sha256 from the manifest (§4.8). If the manifest has no hash (archived
-  # entry not re-hashed), warn rather than install blind.
   _check(){ local file="$1" want="$2"; [ -n "$want" ] || { echo "!! no sha256 in manifest for $file — refusing to install unverified"; return 1; }
             local got; got="$(sha256sum "$tmp/$file" | cut -d' ' -f1)"
             [ "$got" = "$want" ] || { echo "!! sha256 MISMATCH for $file"; echo "   want $want"; echo "   got  $got"; return 1; }
             echo "   verified $file"; }
   _check "$kfile" "$ksha" || return 1
   _check "$hfile" "$hsha" || return 1
-  # hand off to arx if present (the orchestrator), else pacman -U directly
-  if command -v arx >/dev/null 2>&1; then arx install "$tmp/$kfile" "$tmp/$hfile" || return 1
-  else sudo pacman -U --noconfirm "$tmp/$kfile" "$tmp/$hfile" || return 1; fi
-  sudo mkinitcpio -P; sudo grub-mkconfig -o /boot/grub/grub.cfg 2>/dev/null || true
+  sudo pacman -U --noconfirm "$tmp/$kfile" "$tmp/$hfile" || return 1
+  sudo grub-mkconfig -o /boot/grub/grub.cfg 2>/dev/null || true
   echo ">> installed $f $ver — reboot to use it (or Set default in the Control Center)"
+}
+
+# ---- user-facing install/remove (prefer the native arx path) ----
+install(){
+  if _have_arx; then arx kernel install "${1:-$FLAVOR_DEFAULT}" ${2:+"$2"}; else _install_bash "${1:-$FLAVOR_DEFAULT}" "${2:-}"; fi
+}
+remove(){
+  local f="${1:-$FLAVOR_DEFAULT}"
+  if _have_arx; then arx kernel remove "$f"; return $?; fi
+  # bash fallback: same two safety checks arx enforces (running + last kernel).
+  local run; run="$(cat "/usr/lib/modules/$(uname -r)/pkgbase" 2>/dev/null)"
+  [ "$run" != "$f" ] || { echo "!! $f is the kernel you are running — reboot into another first"; return 1; }
+  local n; n="$(pacman -Qq 2>/dev/null | grep -Ex 'linux-arxos|linux-arxos-rt|linux|linux-lts|linux-zen|linux-hardened' | wc -l)"
+  [ "$n" -gt 1 ] || { echo "!! $f is the only kernel installed — removing it would leave nothing to boot"; return 1; }
+  pacman -Qq "$f" >/dev/null 2>&1 || { echo "!! $f is not installed"; return 1; }
+  local t="$f"; pacman -Qq "$f-headers" >/dev/null 2>&1 && t="$t $f-headers"
+  sudo pacman -Rns --noconfirm $t || return 1
+  sudo grub-mkconfig -o /boot/grub/grub.cfg 2>/dev/null || true
+  echo ">> removed $f"
 }
 
 case "${1:-}" in
@@ -92,5 +115,7 @@ case "${1:-}" in
   latest)  latest "${2:-}" ;;
   current) current "${2:-}" ;;
   install) install "${2:-}" "${3:-}" ;;
-  *) echo "usage: arxos-kernel {list|history|latest|current|install} <flavor> [version]"; exit 1 ;;
+  remove)  remove "${2:-}" ;;
+  _resolve) _resolve "${2:-}" "${3:-}" ;;
+  *) echo "usage: arxos-kernel {list|install <flavor> [version]|remove <flavor>|history|latest|current} [flavor]"; exit 1 ;;
 esac
