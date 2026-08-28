@@ -1,0 +1,15 @@
+[package]
+name = "anond"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "ArxOS anonymity daemon: fail-closed Tor + kill-switch, memory-safe"
+
+[[bin]]
+name = "anond"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

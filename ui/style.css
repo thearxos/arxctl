@@ -180,6 +180,23 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opa
 .info .card .vv{font-family:'JetBrains Mono';font-size:.85rem;text-align:right}
 .soon{color:var(--dim);font-style:italic;padding:30px 0}
 
+/* ---- privacy (anond / AnonKit) ---- */
+.anon-hero{display:flex;align-items:center;gap:20px;padding:20px 24px}
+.anon-ic{width:76px;height:76px;flex:none;border-radius:18px;filter:drop-shadow(0 6px 18px rgba(120,90,200,.4))}
+.anon-meta{display:flex;flex-direction:column;gap:5px;min-width:0}
+.anon-title{font-size:1.3rem;font-weight:700;letter-spacing:-.01em}
+.anon-state{display:flex;align-items:center;gap:9px;font-size:.95rem;color:var(--muted)}
+.anon-dot{width:11px;height:11px;border-radius:50%;flex:none;background:var(--dim)}
+.anon-dot.on{background:var(--ok);box-shadow:0 0 0 4px rgba(78,195,122,.18),0 0 12px rgba(78,195,122,.7)}
+.anon-dot.busy{background:#e8b23a;box-shadow:0 0 0 4px rgba(232,178,58,.18),0 0 12px rgba(232,178,58,.7);animation:pulse 1.4s infinite}
+.anon-dot.off{background:var(--dim)}
+.anon-exit{font-family:'JetBrains Mono',monospace;font-size:.8rem}
+.anon-actions{display:flex;gap:10px;flex:none}
+.anon-row{display:flex;gap:10px;margin-top:14px}
+.anon-facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:13px;margin-top:16px}
+.anon-facts .card b{display:block;margin-bottom:6px;font-size:.95rem}
+.anon-facts .card p{font-size:.83rem;line-height:1.5;margin:0}
+
 /* ---- terminal hand-off notice ---- */
 .handoff{margin-top:18px}
 .launched{display:flex;align-items:center;gap:11px;padding:14px 18px;border-radius:var(--r-sm);

@@ -38,16 +38,18 @@ jobs:
           pacman-key --populate archlinux
           pacman -Syu --noconfirm --needed base-devel git rust cargo pkgconf \
             webkit2gtk-4.1 gtk3 libappindicator-gtk3 librsvg openssl curl tar gzip github-cli
-      - name: Build the Control Center (public binaries; source stays private)
+      - name: Build the Control Center + anond (public binaries; source stays private)
         run: |
-          cargo build --release --bin arxctl --bin arxos-notify
+          cargo build --release --bin arxctl --bin arxos-notify --bin anond
           install -Dm755 target/release/arxctl      dist/arxctl
           install -Dm755 target/release/arxos-notify dist/arxos-notify
+          install -Dm755 target/release/anond        dist/anond
       - name: Smoke-test the binaries
         run: |
           file dist/arxctl | grep -q ELF
           test -x dist/arxos-notify
-          sha256sum dist/arxctl dist/arxos-notify > dist/SHA256SUMS
+          dist/anond --version
+          sha256sum dist/arxctl dist/arxos-notify dist/anond > dist/SHA256SUMS
           cat dist/SHA256SUMS
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -63,7 +65,7 @@ jobs:
         run: |
           DIST="${GITHUB_REPOSITORY}-dist"
           gh release create "$RELEASE_TAG" \
-            dist/arxctl dist/arxos-notify dist/SHA256SUMS \
+            dist/arxctl dist/arxos-notify dist/anond dist/SHA256SUMS \
             --repo "$DIST" --title "ArxOS Control Center $RELEASE_TAG" --generate-notes \
           || gh release upload "$RELEASE_TAG" \
-            dist/arxctl dist/arxos-notify dist/SHA256SUMS --repo "$DIST" --clobber
+            dist/arxctl dist/arxos-notify dist/anond dist/SHA256SUMS --repo "$DIST" --clobber

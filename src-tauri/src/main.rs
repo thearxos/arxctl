@@ -166,6 +166,40 @@ fn weapons_remove(category: String) -> Result<(), String> {
 }
 #[tauri::command]
 fn weapons_browse() -> Result<(), String> { launch_arx(&["weapons", "list-all"]) }
+
+// ---------- privacy: anond (the anonymity daemon) ----------
+// Status is read from anond's world-readable snapshot (no root needed to show state). The
+// privileged actions (up/down/verify/new-identity) hand off to a terminal running `sudo anond`
+// so the user watches the fail-closed bring-up and authenticates there. We never hold root.
+#[derive(Serialize)]
+struct AnondStatus { state: String, exit_ip: String }
+
+#[tauri::command]
+fn anond_status() -> AnondStatus {
+    let v: serde_json::Value = serde_json::from_str(&read("/run/anond/pub.json")).unwrap_or(serde_json::Value::Null);
+    AnondStatus {
+        state: v.get("state").and_then(|x| x.as_str()).unwrap_or("Down").to_string(),
+        exit_ip: v.get("exit_ip").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+    }
+}
+
+// launch a privileged tool in the OS terminal, held open (sudo authenticates in the terminal).
+fn launch_priv(bin: &str, args: &[&str]) -> Result<(), String> {
+    let mut c = if have("konsole") { let mut c = std::process::Command::new("konsole"); c.args(["--hold", "-e", "sudo", bin]); c }
+        else if have("xterm") { let mut c = std::process::Command::new("xterm"); c.args(["-hold", "-e", "sudo", bin]); c }
+        else if have("x-terminal-emulator") { let mut c = std::process::Command::new("x-terminal-emulator"); c.args(["-e", "sudo", bin]); c }
+        else { return Err("no terminal emulator found".into()); };
+    c.args(args);
+    c.spawn().map(|_| ()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn anond_action(action: String) -> Result<(), String> {
+    match action.as_str() {
+        "up" | "down" | "verify" | "new-identity" => launch_priv("anond", &[&action]),
+        _ => Err("invalid action".into()),
+    }
+}
 #[tauri::command]
 fn system_update() -> Result<(), String> { launch_arx(&["upgrade"]) }
 #[tauri::command]
@@ -184,6 +218,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             system_info, updates_count, kernels_list, kernels_manifest, weapons_categories, arsenal_totals, services_status,
             weapons_install, weapons_remove, weapons_browse, system_update, kernel_install, kernel_remove,
+            anond_status, anond_action,
             perf::perf_status, perf::perf_set_governor, perf::perf_set_epp, perf::perf_set_turbo, perf::perf_apply_profile,
             net::net_status, net::net_ports, net::net_disable_service, net::net_block_port
         ])

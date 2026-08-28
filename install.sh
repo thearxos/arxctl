@@ -9,13 +9,15 @@ S=""; [ "$(id -u)" -ne 0 ] && S=sudo
 # --- binaries ----------------------------------------------------------------
 # arxctl (Tauri GUI) + arxos-notify (update ping) come prebuilt in a dist; from a
 # source checkout, build the release binaries first.
-ARXCTL="$D/arxctl"; NOTIFY="$D/arxos-notify"
+ARXCTL="$D/arxctl"; NOTIFY="$D/arxos-notify"; ANOND="$D/anond"
 [ -x "$ARXCTL" ] || ARXCTL="$D/target/release/arxctl"
 [ -x "$NOTIFY" ] || NOTIFY="$D/target/release/arxos-notify"
-if [ ! -x "$ARXCTL" ] || [ ! -x "$NOTIFY" ]; then
+[ -x "$ANOND" ]  || ANOND="$D/target/release/anond"
+if [ ! -x "$ARXCTL" ] || [ ! -x "$NOTIFY" ] || [ ! -x "$ANOND" ]; then
   if command -v cargo >/dev/null 2>&1 && [ -f "$D/Cargo.toml" ]; then
-    # source checkout: build the release binaries
-    ( cd "$D" && cargo build --release ) && ARXCTL="$D/target/release/arxctl" && NOTIFY="$D/target/release/arxos-notify"
+    # source checkout: build the whole workspace (arxctl + arxos-notify + anond)
+    ( cd "$D" && cargo build --release ) \
+      && ARXCTL="$D/target/release/arxctl" && NOTIFY="$D/target/release/arxos-notify" && ANOND="$D/target/release/anond"
   else
     # binary-only dist (public -dist mirror ships no source): download the prebuilt
     # binaries from the public release. Source never ships; only the compiled artifacts.
@@ -26,16 +28,21 @@ if [ ! -x "$ARXCTL" ] || [ ! -x "$NOTIFY" ]; then
     TMP="$(mktemp -d)"
     dl "$BASE/arxctl"       "$TMP/arxctl"       && chmod +x "$TMP/arxctl"       && ARXCTL="$TMP/arxctl"
     dl "$BASE/arxos-notify" "$TMP/arxos-notify" && chmod +x "$TMP/arxos-notify" && NOTIFY="$TMP/arxos-notify"
+    dl "$BASE/anond"        "$TMP/anond"        && chmod +x "$TMP/anond"        && ANOND="$TMP/anond"
   fi
 fi
 [ -x "$ARXCTL" ] && $S install -Dm755 "$ARXCTL" /usr/local/bin/arxctl
 [ -x "$NOTIFY" ] && $S install -Dm755 "$NOTIFY" /usr/local/bin/arxos-notify
+# anond (the anonymity daemon) ships bundled inside the Control Center
+[ -x "$ANOND" ]  && $S install -Dm755 "$ANOND"  /usr/local/bin/anond
 $S install -Dm755 "$D/arxos-news"   /usr/local/bin/arxos-news   2>/dev/null
 $S install -Dm755 "$D/arxos-kernel" /usr/local/bin/arxos-kernel 2>/dev/null
 
 # --- icon + menu entry -------------------------------------------------------
 ICON="$D/src-tauri/icons/icon.png"; [ -f "$ICON" ] || ICON="$D/assets/icons/arxctl.png"
 [ -f "$ICON" ] && $S install -Dm644 "$ICON" /usr/share/icons/hicolor/512x512/apps/arxctl.png
+# the AnonKit icon (the arxos-anonkit mark) — the icon for the anonkit toolkit everywhere
+[ -f "$D/assets/anonkit.png" ] && $S install -Dm644 "$D/assets/anonkit.png" /usr/share/icons/ArxOS/arxos-anonkit.png
 $S install -Dm644 "$D/arxos-control.desktop" /usr/share/applications/arxos-control.desktop
 $S gtk-update-icon-cache -f /usr/share/icons/hicolor 2>/dev/null || true
 $S update-desktop-database 2>/dev/null || true

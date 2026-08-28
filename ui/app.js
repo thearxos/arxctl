@@ -303,6 +303,37 @@ async function paintNet() {
   });
 }
 
+// ---- privacy (anond, the anonymity daemon) ----
+let anonTimer = null;
+const ANON_UI = {
+  Active:        { cls: 'on',   txt: 'Anonymous — exiting via Tor' },
+  Bootstrapping: { cls: 'busy', txt: 'Bootstrapping…' },
+  Locked:        { cls: 'busy', txt: 'Locked (traffic blocked)' },
+  Draining:      { cls: 'busy', txt: 'Draining…' },
+  Down:          { cls: 'off',  txt: 'Off — not anonymous' },
+};
+loaders.privacy = async () => {
+  await paintAnon();
+  clearInterval(anonTimer);
+  anonTimer = setInterval(() => { if ($('#p-privacy').classList.contains('active')) paintAnon(); else clearInterval(anonTimer); }, 2000);
+};
+async function paintAnon() {
+  let s; try { s = await invoke('anond_status'); } catch { return; }
+  const u = ANON_UI[s.state] || ANON_UI.Down;
+  $('#anon-dot').className = 'anon-dot ' + u.cls;
+  $('#anon-state-txt').textContent = u.txt;
+  $('#anon-exit').textContent = s.state === 'Active' && s.exit_ip ? 'exit IP ' + s.exit_ip : '';
+  $('#anon-up').disabled = s.state === 'Active';
+  $('#anon-down').disabled = s.state === 'Down';
+}
+{
+  const note = () => $('#anon-note');
+  $('#anon-up').addEventListener('click', () => handoff(note(), 'anond_action', { action: 'up' }, 'Going anonymous'));
+  $('#anon-down').addEventListener('click', () => handoff(note(), 'anond_action', { action: 'down' }, 'Stopping anond'));
+  $('#anon-verify').addEventListener('click', () => handoff(note(), 'anond_action', { action: 'verify' }, 'The leak test'));
+  $('#anon-newid').addEventListener('click', () => handoff(note(), 'anond_action', { action: 'new-identity' }, 'A new identity'));
+}
+
 // ---- services ----
 loaders.services = async () => {
   const svc = await invoke('services_status');

@@ -38,6 +38,7 @@ jobs:
           # README landing-page assets (so the public -dist README renders)
           install -D "$src/assets/banner.svg"                 assets/banner.svg
           install -D "$src/assets/stingray-labs.png"          assets/stingray-labs.png
+          install -D "$src/assets/anonkit.png"                assets/anonkit.png
           for s in dashboard network weapons performance; do
             install -D "$src/assets/screenshots/$s.webp" "assets/screenshots/$s.webp"
           done

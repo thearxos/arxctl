@@ -119,8 +119,30 @@
     </section>
 
     <section class="panel" id="p-privacy">
-      <header class="phead"><h1 class="pf">Privacy</h1><p>Whole-system anonymity, fail-closed.</p></header>
-      <div class="soon">anond (the ArxOS anonymity daemon) mounts here.</div>
+      <header class="phead"><h1 class="pf">Privacy</h1><p>Whole-system anonymity, fail-closed. Powered by anond.</p></header>
+      <div class="anon-hero card">
+        <img src="anonkit.png" class="anon-ic" alt="ArxOS AnonKit">
+        <div class="anon-meta">
+          <div class="anon-title">ArxOS AnonKit</div>
+          <div class="anon-state"><span class="anon-dot" id="anon-dot"></span><span id="anon-state-txt">checking…</span></div>
+          <div class="anon-exit dim" id="anon-exit"></div>
+        </div>
+        <div class="grow"></div>
+        <div class="anon-actions">
+          <button class="btn-p" id="anon-up">Go anonymous</button>
+          <button class="btn-g" id="anon-down">Stop</button>
+        </div>
+      </div>
+      <div class="anon-row">
+        <button class="btn-g" id="anon-verify">Verify (leak test)</button>
+        <button class="btn-g" id="anon-newid">New identity</button>
+      </div>
+      <div class="anon-facts">
+        <div class="card"><b>Fail-closed</b><p class="dim">The kill-switch is armed before Tor and removed last. If any layer is unhealthy, traffic is blocked, never leaked.</p></div>
+        <div class="card"><b>DNS can't leak</b><p class="dim">Every clearnet lookup is pinned to Tor, and the resolver is locked immutable for the session.</p></div>
+        <div class="card"><b>Verified, not asserted</b><p class="dim">IPv6 egress is dropped and anond proves each invariant at runtime, refusing Active until every probe passes.</p></div>
+      </div>
+      <div class="handoff" id="anon-note" hidden></div>
     </section>
 
     <section class="panel" id="p-services">
