@@ -47,7 +47,7 @@
     <section class="panel" id="p-update">
       <header class="phead"><h1 class="pf">Update</h1><p>The system, the kernel, and the ArxOS tools, in one pass.</p></header>
       <button class="btn-p" id="btn-update">Update everything</button>
-      <div class="console" id="update-console" hidden></div>
+      <div class="handoff" id="update-note" hidden></div>
     </section>
 
     <section class="panel" id="p-weapons">
@@ -62,7 +62,7 @@
               <button class="btn-g" id="btn-weap-remove" disabled>Remove</button>
             </div>
           </div>
-          <div class="console" id="weap-console"><div class="con-empty">Select a category, then install. Live progress shows here.</div></div>
+          <div class="handoff" id="weap-note"><div class="con-empty">Pick a category, then Install. It runs in a terminal so you see every step, and closes on success.</div></div>
         </div>
       </div>
     </section>
@@ -70,12 +70,28 @@
     <section class="panel" id="p-kernels">
       <header class="phead"><h1 class="pf">Kernels</h1><p>Pick, install, and roll back, checksum-verified.</p></header>
       <div class="klist" id="kernel-list"></div>
-      <div class="console" id="kernel-console" hidden></div>
+      <div class="handoff" id="kernel-note" hidden></div>
     </section>
 
     <section class="panel" id="p-performance">
-      <header class="phead"><h1 class="pf">Performance</h1><p>Governor and tuning profiles.</p></header>
-      <div class="soon">Wiring cpu-governor / arx-powerd next.</div>
+      <header class="phead"><h1 class="pf">Performance</h1><p>Direct, live control of the CPU. Every value is read straight from the kernel, right now.</p></header>
+      <div class="profiles">
+        <button class="prof" data-prof="powersave"><b>Power save</b><span>quiet &amp; cool</span></button>
+        <button class="prof" data-prof="balanced"><b>Balanced</b><span>the default</span></button>
+        <button class="prof" data-prof="performance"><b>Performance</b><span>full tilt</span></button>
+      </div>
+      <div class="grid perf-top">
+        <div class="card stat"><span class="k">Package temp</span><b id="pf-temp">—</b><span class="dim">live</span></div>
+        <div class="card stat"><span class="k">Driver</span><b id="pf-driver" class="mono drv">—</b><span id="pf-range" class="dim"></span></div>
+        <div class="card ctlcard"><span class="k">Governor</span><select id="pf-gov" class="ctl"></select></div>
+        <div class="card ctlcard"><span class="k">Energy preference</span><select id="pf-epp" class="ctl"></select></div>
+      </div>
+      <div class="card row" id="pf-turbo-card">
+        <div><b>Turbo / boost</b><div class="dim" style="font-size:.82rem">Let cores climb past the base clock under load</div></div>
+        <div class="grow"></div>
+        <label class="switch"><input type="checkbox" id="pf-turbo"><i></i></label>
+      </div>
+      <div class="card wide"><div class="meter-head"><span class="k">Cores</span><span id="pf-corecount" class="dim mono"></span></div><div class="cores" id="pf-cores"></div></div>
     </section>
 
     <section class="panel" id="p-privacy">

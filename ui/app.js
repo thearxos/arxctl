@@ -17,34 +17,11 @@ $$('.nav-item').forEach(b => b.addEventListener('click', () => {
   loaders[p]?.();
 }));
 
-// ---- a live console: append streamed lines, close with a verdict ----
-function makeConsole(node) {
-  node.innerHTML = '';
+// actions hand off to a terminal (arx runs there); the panel just confirms the launch.
+function handoff(node, cmd, args, label) {
   node.hidden = false;
-  return {
-    line(text) {
-      let cls = 'line';
-      if (text.startsWith('$ ')) cls += ' cmd';
-      else if (/\b(done|installed|recovered|verified|ok|success)\b/i.test(text)) cls += ' ok';
-      else if (/\b(error|fail|refused|xx|cannot)\b/i.test(text)) cls += ' err';
-      node.appendChild(el('div', cls, escapeHtml(text)));
-      node.scrollTop = node.scrollHeight;
-    },
-    done(ok, okMsg, failMsg) {
-      const d = el('div', 'done ' + (ok ? 'good' : 'fail'), ok ? (okMsg || 'Done ✓') : (failMsg || 'Failed'));
-      node.appendChild(d); node.scrollTop = node.scrollHeight;
-    }
-  };
-}
-const escapeHtml = s => s.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
-
-// run a streamed backend action, wiring its topic events into a console
-async function runStreamed(cmd, args, topic, node, okMsg) {
-  const con = makeConsole(node);
-  const off1 = await listen(`${topic}:progress`, e => con.line(e.payload));
-  const off2 = await listen(`${topic}:done`, e => { con.done(e.payload, okMsg); off1(); off2(); });
-  try { await invoke(cmd, args); }
-  catch (err) { con.line(String(err)); }
+  node.innerHTML = `<div class="launched"><span class="spark"></span>${label} is running in a terminal. Watch it there — it closes on success.</div>`;
+  invoke(cmd, args).catch(e => { node.innerHTML = `<div class="launched err">Could not launch: ${e}</div>`; });
 }
 
 // ---- dashboard ----
@@ -66,7 +43,7 @@ loaders.dashboard = async () => {
 
 // ---- update ----
 $('#btn-update').addEventListener('click', () =>
-  runStreamed('system_update', {}, 'update', $('#update-console'), 'System up to date ✓'));
+  handoff($('#update-note'), 'system_update', {}, 'The update'));
 
 // ---- weapons (the live arsenal installer) ----
 let weapSel = null;
@@ -89,12 +66,10 @@ loaders.weapons = async () => {
   });
 };
 $('#btn-weap-install').addEventListener('click', () => {
-  if (!weapSel) return;
-  runStreamed('weapons_install', { category: weapSel }, 'weapons', $('#weap-console'), `Installed the ${weapSel} arsenal ✓`);
+  if (weapSel) handoff($('#weap-note'), 'weapons_install', { category: weapSel }, `Installing the ${weapSel} arsenal`);
 });
 $('#btn-weap-remove').addEventListener('click', () => {
-  if (!weapSel) return;
-  runStreamed('weapons_remove', { category: weapSel }, 'weapons', $('#weap-console'), `Removed the ${weapSel} arsenal ✓`);
+  if (weapSel) handoff($('#weap-note'), 'weapons_remove', { category: weapSel }, `Removing the ${weapSel} arsenal`);
 });
 
 // ---- kernels ----
@@ -106,14 +81,53 @@ loaders.kernels = async () => {
     const badge = k.running ? '<span class="badge running">running</span>'
       : k.status === 'current' ? '<span class="badge current">current</span>'
       : '<span class="badge retired">retired</span>';
-    row.innerHTML = `<div><div class="kf">${k.flavor}</div><div class="kv">${k.version} · ${k.role}</div></div>
+    row.innerHTML = `<div><div class="kf">${k.flavor} <span class="kv">${k.version}</span></div><div class="kv">${k.role}</div></div>
       <div class="grow"></div>${badge}
-      ${k.running ? '' : `<button class="btn-g" data-flavor="${k.flavor}">Install</button>`}`;
-    const b = row.querySelector('button');
-    if (b) b.addEventListener('click', () => runStreamed('kernel_install', { flavor: b.dataset.flavor }, 'kernel', $('#kernel-console'), 'Kernel installed ✓'));
+      <button class="btn-g" data-act="install" data-flavor="${k.flavor}">Install</button>
+      ${k.running ? '' : `<button class="btn-g" data-act="remove" data-flavor="${k.flavor}">Remove</button>`}`;
+    row.querySelectorAll('button').forEach(b => b.addEventListener('click', () =>
+      handoff($('#kernel-note'), b.dataset.act === 'remove' ? 'kernel_remove' : 'kernel_install', { flavor: b.dataset.flavor }, `${b.dataset.act === 'remove' ? 'Removing' : 'Installing'} ${b.dataset.flavor}`)));
     box.appendChild(row);
   });
 };
+
+// ---- performance (live, direct CPU control) ----
+let perfTimer = null;
+loaders.performance = async () => {
+  await paintPerf();
+  clearInterval(perfTimer);
+  perfTimer = setInterval(() => { if ($('#p-performance').classList.contains('active')) paintPerf(); else clearInterval(perfTimer); }, 1500);
+};
+let perfWired = false;
+async function paintPerf() {
+  let s; try { s = await invoke('perf_status'); } catch { return; }
+  $('#pf-temp').textContent = s.temp_c ? s.temp_c + '°C' : '—';
+  $('#pf-driver').textContent = s.driver || '—';
+  $('#pf-range').textContent = `${(s.min_mhz/1000).toFixed(1)}–${(s.max_mhz/1000).toFixed(1)} GHz`;
+  // governor + epp selects
+  fillSelect($('#pf-gov'), s.governors, s.governor);
+  const eppCard = $('#pf-epp').closest('.ctlcard');
+  if (s.epps.length) { eppCard.style.display = ''; fillSelect($('#pf-epp'), s.epps, s.epp); } else { eppCard.style.display = 'none'; }
+  // turbo
+  const tc = $('#pf-turbo-card'); tc.style.display = s.turbo_supported ? '' : 'none';
+  $('#pf-turbo').checked = s.turbo;
+  // per-core live gauges
+  const box = $('#pf-cores'); $('#pf-corecount').textContent = s.cores.length + ' threads';
+  if (box.childElementCount !== s.cores.length) { box.innerHTML = ''; s.cores.forEach(c => box.appendChild(el('div', 'core', `<span class="cl mono">${c.mhz ? (c.mhz/1000).toFixed(1) : '—'}</span><div class="cbar"><i></i></div><span class="ci dim mono">${c.id}</span>`))); }
+  s.cores.forEach((c, i) => { const n = box.children[i]; if (!n) return; n.querySelector('.cl').textContent = c.mhz ? (c.mhz/1000).toFixed(1) : '—'; const bar = n.querySelector('.cbar i'); bar.style.width = c.load + '%'; bar.style.background = c.load > 80 ? 'linear-gradient(90deg,#e8702a,#ff8340)' : 'linear-gradient(90deg,#e8702a,#e8702a)'; });
+  // wire controls once
+  if (!perfWired) {
+    perfWired = true;
+    $('#pf-gov').addEventListener('change', e => invoke('perf_set_governor', { governor: e.target.value }).then(paintPerf).catch(alert));
+    $('#pf-epp').addEventListener('change', e => invoke('perf_set_epp', { epp: e.target.value }).then(paintPerf).catch(alert));
+    $('#pf-turbo').addEventListener('change', e => invoke('perf_set_turbo', { on: e.target.checked }).then(paintPerf).catch(() => { e.target.checked = !e.target.checked; }));
+    $$('.prof').forEach(b => b.addEventListener('click', () => invoke('perf_apply_profile', { profile: b.dataset.prof }).then(paintPerf).catch(alert)));
+  }
+}
+function fillSelect(sel, opts, cur) {
+  if (sel.dataset.opts !== opts.join(',')) { sel.innerHTML = ''; opts.forEach(o => sel.appendChild(el('option', null, o))); sel.dataset.opts = opts.join(','); }
+  sel.value = cur;
+}
 
 // ---- services ----
 loaders.services = async () => {

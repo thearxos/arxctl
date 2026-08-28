@@ -6,9 +6,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter};
-use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::Command as AsyncCommand;
+
+mod perf;
 
 // ---------- small helpers ----------
 
@@ -17,18 +16,6 @@ fn read(path: &str) -> String { std::fs::read_to_string(path).unwrap_or_default(
 fn run(cmd: &str, args: &[&str]) -> String {
     std::process::Command::new(cmd).args(args).output()
         .map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default()
-}
-
-// strip ANSI escapes + carriage returns so streamed tool output renders cleanly in the UI
-fn clean_line(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut it = s.chars().peekable();
-    while let Some(c) = it.next() {
-        if c == '\x1b' { if it.peek() == Some(&'[') { it.next(); while let Some(&n) = it.peek() { it.next(); if ('@'..='~').contains(&n) { break; } } } else { it.next(); } continue; }
-        if c == '\r' { continue; }
-        out.push(c);
-    }
-    out.trim_end().to_string()
 }
 
 // ---------- read-only system state ----------
@@ -104,65 +91,57 @@ fn services_status() -> Vec<Service> {
     }).collect()
 }
 
-// ---------- live, streamed actions (the "watch it happen" part) ----------
+// ---------- actions: hand off to a real terminal ----------
+// We do NOT reimplement arx's progress UI in the GUI. arx already renders installs
+// beautifully in a terminal (its loader, per-step lines, and precise result), and it
+// handles its own privilege escalation. The deck just launches the OS terminal running
+// the arx command, held open so the user watches it to completion and sees the result.
 
-// spawn a privileged command and stream every output line to the frontend as a
-// `deck://progress` event, then a final `deck://done` with success. `topic` scopes
-// the events so different panels (weapons, update, kernel) can listen independently.
-async fn stream(app: AppHandle, topic: String, cmd: &str, args: Vec<String>) -> Result<(), String> {
-    let mut child = AsyncCommand::new(cmd).args(&args)
-        .stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped())
-        .spawn().map_err(|e| format!("could not start {cmd}: {e}"))?;
-    let _ = app.emit(&format!("{topic}:progress"), format!("$ {cmd} {}", args.join(" ")));
-    // merge stdout + stderr line streams (arx renders its UI on stderr)
-    if let Some(out) = child.stdout.take() {
-        let (app2, topic2) = (app.clone(), topic.clone());
-        tokio::spawn(async move { let mut l = BufReader::new(out).lines(); while let Ok(Some(x)) = l.next_line().await { let c = clean_line(&x); if !c.is_empty() { let _ = app2.emit(&format!("{topic2}:progress"), c); } } });
-    }
-    if let Some(err) = child.stderr.take() {
-        let (app2, topic2) = (app.clone(), topic.clone());
-        tokio::spawn(async move { let mut l = BufReader::new(err).lines(); while let Ok(Some(x)) = l.next_line().await { let c = clean_line(&x); if !c.is_empty() { let _ = app2.emit(&format!("{topic2}:progress"), c); } } });
-    }
-    let status = child.wait().await.map_err(|e| e.to_string())?;
-    let ok = status.success();
-    let _ = app.emit(&format!("{topic}:done"), ok);
-    if ok { Ok(()) } else { Err(format!("{topic} exited with an error")) }
-}
-
-// arsenal names are validated by arx's own guard; here we only allow the shape the UI
-// produces (a category token or a keyword) so nothing odd reaches pkexec.
 fn safe_token(s: &str) -> bool { !s.is_empty() && s.len() <= 40 && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b' ') }
+fn have(bin: &str) -> bool { std::env::var("PATH").unwrap_or_default().split(':').any(|d| std::path::Path::new(d).join(bin).exists()) }
+
+// launch the OS terminal running `arx <args>`, held open after it finishes.
+fn launch_arx(arx_args: &[&str]) -> Result<(), String> {
+    let mut cmd = if have("konsole") {
+        let mut c = std::process::Command::new("konsole"); c.args(["--hold", "-e", "arx"]); c
+    } else if have("xterm") {
+        let mut c = std::process::Command::new("xterm"); c.args(["-hold", "-e", "arx"]); c
+    } else if have("x-terminal-emulator") {
+        let mut c = std::process::Command::new("x-terminal-emulator"); c.args(["-e", "arx"]); c
+    } else { return Err("no terminal emulator found".into()); };
+    cmd.args(arx_args);
+    cmd.spawn().map(|_| ()).map_err(|e| e.to_string())
+}
 
 #[tauri::command]
-async fn weapons_install(app: AppHandle, category: String) -> Result<(), String> {
+fn weapons_install(category: String) -> Result<(), String> {
     if !safe_token(&category) { return Err("invalid category".into()); }
-    let args: Vec<String> = vec!["arx".into(), "weapons".into(), "install".into()].into_iter().chain(category.split_whitespace().map(String::from)).collect();
-    stream(app, "weapons".into(), "pkexec", args).await
+    let mut a = vec!["weapons", "install"]; a.extend(category.split_whitespace()); launch_arx(&a)
 }
-
 #[tauri::command]
-async fn weapons_remove(app: AppHandle, category: String) -> Result<(), String> {
+fn weapons_remove(category: String) -> Result<(), String> {
     if !safe_token(&category) { return Err("invalid category".into()); }
-    let args: Vec<String> = vec!["arx".into(), "weapons".into(), "remove".into()].into_iter().chain(category.split_whitespace().map(String::from)).collect();
-    stream(app, "weapons".into(), "pkexec", args).await
+    let mut a = vec!["weapons", "remove"]; a.extend(category.split_whitespace()); launch_arx(&a)
 }
-
 #[tauri::command]
-async fn system_update(app: AppHandle) -> Result<(), String> {
-    stream(app, "update".into(), "pkexec", vec!["arx".into(), "upgrade".into()]).await
-}
-
+fn system_update() -> Result<(), String> { launch_arx(&["upgrade"]) }
 #[tauri::command]
-async fn kernel_install(app: AppHandle, flavor: String) -> Result<(), String> {
+fn kernel_install(flavor: String) -> Result<(), String> {
     if !safe_token(&flavor) { return Err("invalid flavor".into()); }
-    stream(app, "kernel".into(), "pkexec", vec!["arx".into(), "kernel".into(), "install".into(), flavor]).await
+    launch_arx(&["kernel", "install", &flavor])
+}
+#[tauri::command]
+fn kernel_remove(flavor: String) -> Result<(), String> {
+    if !safe_token(&flavor) { return Err("invalid flavor".into()); }
+    launch_arx(&["kernel", "remove", &flavor])
 }
 
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             system_info, updates_count, kernels_list, weapons_categories, services_status,
-            weapons_install, weapons_remove, system_update, kernel_install
+            weapons_install, weapons_remove, system_update, kernel_install, kernel_remove,
+            perf::perf_status, perf::perf_set_governor, perf::perf_set_epp, perf::perf_set_turbo, perf::perf_apply_profile
         ])
         .run(tauri::generate_context!())
         .expect("error while running the ArxOS Control Center");
