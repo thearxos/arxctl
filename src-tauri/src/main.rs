@@ -65,6 +65,32 @@ fn kernels_list() -> Vec<Kernel> {
     }).collect()
 }
 
+// The public ArxOS kernel history (arxos-kernels/kernels.json on GitHub): flavors, the
+// tuning features every ArxOS kernel carries, and the full per-version changelog. This is
+// what makes the Kernels panel a real loader (ukui-style) rather than just a list.
+#[derive(Serialize)] struct KFlavor { name: String, role: String, base: String, current: String }
+#[derive(Serialize)] struct KTune { name: String, advantage: String }
+#[derive(Serialize)] struct KHistory { flavor: String, version: String, upstream: String, date: String, status: String, changes: String }
+#[derive(Serialize)] struct KManifest { updated: String, flavors: Vec<KFlavor>, tunes: Vec<KTune>, history: Vec<KHistory> }
+
+#[tauri::command]
+fn kernels_manifest() -> KManifest {
+    let raw = run("curl", &["-fsSL", "--max-time", "20",
+        "https://raw.githubusercontent.com/thearxos/arxos-kernels/main/kernels.json"]);
+    let v: serde_json::Value = serde_json::from_str(&raw).unwrap_or(serde_json::Value::Null);
+    let s = |x: &serde_json::Value, k: &str| x.get(k).and_then(|y| y.as_str()).unwrap_or("").to_string();
+    let flavors = v.get("flavors").and_then(|x| x.as_object()).map(|o| o.iter().map(|(name, f)| KFlavor {
+        name: name.clone(), role: s(f, "role"), base: s(f, "base"), current: s(f, "current"),
+    }).collect()).unwrap_or_default();
+    let tunes = v.get("tunes").and_then(|x| x.as_array()).map(|a| a.iter()
+        .map(|t| KTune { name: s(t, "name"), advantage: s(t, "advantage") }).collect()).unwrap_or_default();
+    let history = v.get("kernels").and_then(|x| x.as_array()).map(|a| a.iter().map(|k| KHistory {
+        flavor: s(k, "flavor"), version: s(k, "version"), upstream: s(k, "upstream"),
+        date: s(k, "date"), status: s(k, "status"), changes: s(k, "changes"),
+    }).collect()).unwrap_or_default();
+    KManifest { updated: s(&v, "updated"), flavors, tunes, history }
+}
+
 #[derive(Serialize)]
 struct Category { name: String, count: usize }
 
@@ -156,7 +182,7 @@ fn kernel_remove(flavor: String) -> Result<(), String> {
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
-            system_info, updates_count, kernels_list, weapons_categories, arsenal_totals, services_status,
+            system_info, updates_count, kernels_list, kernels_manifest, weapons_categories, arsenal_totals, services_status,
             weapons_install, weapons_remove, weapons_browse, system_update, kernel_install, kernel_remove,
             perf::perf_status, perf::perf_set_governor, perf::perf_set_epp, perf::perf_set_turbo, perf::perf_apply_profile,
             net::net_status, net::net_ports, net::net_disable_service, net::net_block_port

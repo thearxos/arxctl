@@ -115,7 +115,30 @@ loaders.kernels = async () => {
       handoff($('#kernel-note'), b.dataset.act === 'remove' ? 'kernel_remove' : 'kernel_install', { flavor: b.dataset.flavor }, `${b.dataset.act === 'remove' ? 'Removing' : 'Installing'} ${b.dataset.flavor}`)));
     box.appendChild(row);
   });
+  paintKernelManifest(); // GitHub-backed features + version history
 };
+
+async function paintKernelManifest() {
+  let m; try { m = await invoke('kernels_manifest'); } catch { return; }
+  // features (what every ArxOS kernel carries)
+  const tb = $('#kernel-tunes');
+  if (m.tunes && m.tunes.length) {
+    tb.innerHTML = '';
+    m.tunes.forEach(t => tb.appendChild(el('div', 'card ktune', `<b>${t.name}</b><p class="dim">${t.advantage}</p>`)));
+  } else { tb.innerHTML = '<div class="soon">Features unavailable (offline).</div>'; }
+  // version history (newest first, changelog under each)
+  if (m.updated) $('#kernel-updated').textContent = '· manifest ' + m.updated;
+  const hb = $('#kernel-history'); hb.innerHTML = '';
+  if (!m.history || !m.history.length) { hb.innerHTML = '<div class="soon">History unavailable (offline).</div>'; return; }
+  m.history.forEach(h => {
+    const badge = h.status === 'current' ? '<span class="badge current">current</span>' : '<span class="badge retired">retired</span>';
+    const row = el('div', 'card khrow');
+    row.innerHTML = `<div class="khhead"><span class="khf mono">${h.flavor}</span> <span class="khv mono">${h.version}</span>
+      <span class="khd dim">${h.upstream}${h.date ? ' · ' + h.date : ''}</span><span class="grow"></span>${badge}</div>
+      <p class="khchg dim">${h.changes}</p>`;
+    hb.appendChild(row);
+  });
+}
 
 // ---- performance (live, direct CPU control) ----
 let perfTimer = null;

@@ -147,6 +147,19 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opa
 .weap-bar .sel{font-weight:600;text-transform:capitalize;font-size:1.05rem}
 .weap-actions{display:flex;gap:9px}
 
+/* ---- kernel loader: features + version history ---- */
+.ktunes{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:13px;margin-bottom:6px}
+.ktune{padding:16px 18px}
+.ktune b{font-size:.98rem;display:block;margin-bottom:6px}
+.ktune p{font-size:.84rem;line-height:1.5;margin:0}
+.khistory{display:flex;flex-direction:column;gap:11px}
+.khrow{padding:15px 18px}
+.khhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.khhead .khf{font-weight:700;font-size:.95rem}
+.khhead .khv{color:var(--accent-hi);font-weight:700}
+.khhead .khd{font-size:.78rem}
+.khchg{font-size:.86rem;line-height:1.55;margin:0}
+
 /* ---- kernels / services / info ---- */
 .klist{display:flex;flex-direction:column;gap:11px}
 .krow{display:flex;align-items:center;gap:16px;padding:15px 20px}
