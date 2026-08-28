@@ -1,0 +1,69 @@
+name: release
+
+# Public release for arxctl (a PUBLIC tool). Builds the Control Center + the update-ping
+# binary and publishes them to the PUBLIC `<repo>-dist` release, so the source repo can stay
+# private while the compiled binaries reach users. Private tools (anonkit, anond) have NO
+# release workflow by design -- they ship only as bundled binaries inside arxctl.
+#
+# Requires one secret: DIST_TOKEN -- a token (fine-grained PAT) with contents:write on the
+# `<repo>-dist` repository, so the release can be published across repos.
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to build, e.g. v0.0.1'
+        required: true
+        default: 'v0.0.1'
+
+permissions:
+  contents: write
+
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Initialize Arch build environment
+        run: |
+          pacman-key --init
+          pacman-key --populate archlinux
+          pacman -Syu --noconfirm --needed base-devel git rust cargo pkgconf \
+            webkit2gtk-4.1 gtk3 libappindicator-gtk3 librsvg openssl curl tar gzip github-cli
+      - name: Build the Control Center (public binaries; source stays private)
+        run: |
+          cargo build --release --bin arxctl --bin arxos-notify
+          install -Dm755 target/release/arxctl      dist/arxctl
+          install -Dm755 target/release/arxos-notify dist/arxos-notify
+      - name: Smoke-test the binaries
+        run: |
+          file dist/arxctl | grep -q ELF
+          test -x dist/arxos-notify
+          sha256sum dist/arxctl dist/arxos-notify > dist/SHA256SUMS
+          cat dist/SHA256SUMS
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: arxctl-${{ env.RELEASE_TAG }}-x86_64
+          path: |
+            dist/arxctl
+            dist/arxos-notify
+            dist/SHA256SUMS
+      - name: Publish binaries to the PUBLIC -dist release
+        env:
+          GH_TOKEN: ${{ secrets.DIST_TOKEN }}
+        run: |
+          DIST="${GITHUB_REPOSITORY}-dist"
+          gh release create "$RELEASE_TAG" \
+            dist/arxctl dist/arxos-notify dist/SHA256SUMS \
+            --repo "$DIST" --title "ArxOS Control Center $RELEASE_TAG" --generate-notes \
+          || gh release upload "$RELEASE_TAG" \
+            dist/arxctl dist/arxos-notify dist/SHA256SUMS --repo "$DIST" --clobber

@@ -1,10 +1,12 @@
 [Desktop Entry]
 Type=Application
-Name=ARXOS Control Center
+Name=ArxOS Control Center
 GenericName=Control Center
-Comment=Manage ARXOS — updates, kernels, performance, privacy, services
-Exec=arxctl-gui
-Icon=preferences-system
+Comment=The ArxOS command deck — updates, the arsenal, kernels, performance, privacy, services
+Exec=arxctl
+Icon=arxctl
 Categories=System;Settings;
 Terminal=false
-Keywords=control;settings;arxos;system;
+StartupNotify=true
+StartupWMClass=ArxOS Control Center
+Keywords=control;center;settings;arxos;system;arsenal;weapons;kernel;performance;privacy;

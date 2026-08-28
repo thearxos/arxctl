@@ -29,6 +29,16 @@ pub struct PerfStatus {
     pub turbo_supported: bool,
     pub temp_c: i32,
     pub cores: Vec<Core>,
+    pub virt: String,     // hypervisor id (e.g. "kvm", "oracle") or "none" on bare metal
+    pub cpufreq: bool,    // whether the kernel exposes CPU frequency scaling at all
+}
+
+// systemd-detect-virt: "none" on bare metal, else the hypervisor id. Frequency scaling is
+// almost always host-owned inside a VM, so the panel uses this to explain limited controls.
+fn detect_virt() -> String {
+    let v = std::process::Command::new("systemd-detect-virt").output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default();
+    if v.is_empty() { "none".into() } else { v }
 }
 
 // sample /proc/stat per-cpu: returns (idle+iowait, total) for each cpuN line.
@@ -96,7 +106,8 @@ pub fn perf_status() -> PerfStatus {
         Core { id: i, mhz, load }
     }).collect();
 
-    PerfStatus { driver, governor, governors, epp, epps, min_mhz, max_mhz, hw_max_mhz, turbo, turbo_supported, temp_c: cpu_temp_c(), cores }
+    let cpufreq = Path::new(&format!("{f0}/scaling_governor")).exists() && !governors.is_empty();
+    PerfStatus { driver, governor, governors, epp, epps, min_mhz, max_mhz, hw_max_mhz, turbo, turbo_supported, temp_c: cpu_temp_c(), cores, virt: detect_virt(), cpufreq }
 }
 
 // write a value to a cpufreq attribute on EVERY cpu, as root, via pkexec. The value is

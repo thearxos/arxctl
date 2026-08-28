@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Sync clean tree to the public -dist mirror
+      - name: Sync BINARY-ONLY tree to the public -dist mirror
         env:
           MIRROR_KEY: ${{ secrets.MIRROR_KEY }}
         run: |
@@ -18,8 +18,29 @@ jobs:
           printf "%s\n" "$MIRROR_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
-          work=$(mktemp -d); cp -a ./. "$work"/; cd "$work"
-          rm -rf .git .github
+          # OPSEC: arxctl is a PUBLIC BINARY with PRIVATE SOURCE. Build the public mirror
+          # from an explicit WHITELIST (never copy-then-strip), so the Rust source
+          # (src-tauri, arxos-notify) can never leak. The compiled binaries ship as release
+          # assets on the -dist repo; the shipped install.sh downloads them from there.
+          src="$GITHUB_WORKSPACE"
+          work=$(mktemp -d); cd "$work"
+          cp "$src/README.md"             README.md
+          cp "$src/VERSION"               VERSION
+          cp "$src/install.sh"            install.sh
+          cp "$src/arxos-control.desktop" arxos-control.desktop
+          cp "$src/arxos-news"            arxos-news
+          cp "$src/arxos-kernel"          arxos-kernel
+          cp "$src/arxos-news.service"    arxos-news.service
+          cp "$src/arxos-news.timer"      arxos-news.timer
+          install -D "$src/data/systemd/arxos-notify.service" data/systemd/arxos-notify.service
+          install -D "$src/data/systemd/arxos-notify.timer"   data/systemd/arxos-notify.timer
+          install -D "$src/src-tauri/icons/icon.png"          assets/icons/arxctl.png
+          # README landing-page assets (so the public -dist README renders)
+          install -D "$src/assets/banner.svg"                 assets/banner.svg
+          install -D "$src/assets/stingray-labs.png"          assets/stingray-labs.png
+          for s in dashboard network weapons performance; do
+            install -D "$src/assets/screenshots/$s.webp" "assets/screenshots/$s.webp"
+          done
           git init -q; git branch -M main
           git -c user.name="ArxOS" -c user.email="ci@thearxos" add -A
           git -c user.name="ArxOS" -c user.email="ci@thearxos" commit -q -m "mirror: sync from source ${GITHUB_SHA::7}"

@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="360" viewBox="0 0 1280 360" role="img" aria-label="ArxOS Control Center — by Stingray Labs">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#191a1f"/>
+      <stop offset="1" stop-color="#0c0c10"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.84" cy="0.08" r="0.75">
+      <stop offset="0" stop-color="#e8702a" stop-opacity="0.36"/>
+      <stop offset="0.5" stop-color="#e8702a" stop-opacity="0.06"/>
+      <stop offset="1" stop-color="#e8702a" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glow2" cx="0.04" cy="1.12" r="0.75">
+      <stop offset="0" stop-color="#6056be" stop-opacity="0.30"/>
+      <stop offset="1" stop-color="#6056be" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ff8f4a"/>
+      <stop offset="1" stop-color="#e8702a"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="360" fill="url(#bg)"/>
+  <rect width="1280" height="360" fill="url(#glow)"/>
+  <rect width="1280" height="360" fill="url(#glow2)"/>
+  <rect x="0.5" y="0.5" width="1279" height="359" fill="none" stroke="#ffffff" stroke-opacity="0.08"/>
+
+  <!-- chevron mark -->
+  <g transform="translate(92,120)">
+    <path d="M0 56 L30 -6 L60 56" fill="none" stroke="url(#gold)" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- wordmark + tagline -->
+  <text x="190" y="140" font-family="Georgia, 'Times New Roman', serif" font-style="italic" font-weight="700" font-size="68" fill="#ffffff">ArxOS Control Center</text>
+  <text x="192" y="184" font-family="ui-monospace, 'JetBrains Mono', 'SFMono-Regular', Menlo, monospace" font-size="20" fill="#b7b4b0" letter-spacing="0.4">The native command deck  ·  Rust + Tauri  ·  live, direct to the OS</text>
+
+  <!-- feature chips -->
+  <g font-family="ui-sans-serif, system-ui, -apple-system, Arial" font-size="16" fill="#efece8">
+    <g transform="translate(192,226)"><rect width="132" height="34" rx="17" fill="#ffffff" fill-opacity="0.05" stroke="#e8702a" stroke-opacity="0.4"/><text x="66" y="22" text-anchor="middle">Performance</text></g>
+    <g transform="translate(336,226)"><rect width="116" height="34" rx="17" fill="#ffffff" fill-opacity="0.05" stroke="#e8702a" stroke-opacity="0.4"/><text x="58" y="22" text-anchor="middle">Network</text></g>
+    <g transform="translate(464,226)"><rect width="112" height="34" rx="17" fill="#ffffff" fill-opacity="0.05" stroke="#e8702a" stroke-opacity="0.4"/><text x="56" y="22" text-anchor="middle">Arsenal</text></g>
+    <g transform="translate(588,226)"><rect width="108" height="34" rx="17" fill="#ffffff" fill-opacity="0.05" stroke="#e8702a" stroke-opacity="0.4"/><text x="54" y="22" text-anchor="middle">Kernels</text></g>
+    <g transform="translate(708,226)"><rect width="108" height="34" rx="17" fill="#ffffff" fill-opacity="0.05" stroke="#e8702a" stroke-opacity="0.4"/><text x="54" y="22" text-anchor="middle">Privacy</text></g>
+  </g>
+
+  <!-- Stingray Labs -->
+  <g transform="translate(1188,300)">
+    <text x="0" y="0" text-anchor="end" font-family="ui-sans-serif, system-ui, Arial" font-weight="700" font-size="16" fill="#efece8" letter-spacing="4">STINGRAY LABS</text>
+    <text x="0" y="20" text-anchor="end" font-family="ui-sans-serif, system-ui, Arial" font-size="12" fill="#8a8784" letter-spacing="1.5">スティングレイ</text>
+  </g>
+</svg>

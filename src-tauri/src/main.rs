@@ -8,6 +8,7 @@
 use serde::Serialize;
 
 mod perf;
+mod net;
 
 // ---------- small helpers ----------
 
@@ -84,6 +85,17 @@ fn weapons_categories() -> Vec<Category> {
 }
 
 #[derive(Serialize)]
+struct ArsenalTotals { curated: usize, total: usize, other: usize }
+
+#[tauri::command]
+fn arsenal_totals() -> ArsenalTotals {
+    // `arx weapons totals` pings the live arsenal index and prints: curated<TAB>total<TAB>other
+    // (all zero if offline, so the UI just falls back to the curated categories).
+    let f: Vec<usize> = run("arx", &["weapons", "totals"]).split_whitespace().filter_map(|x| x.parse().ok()).collect();
+    ArsenalTotals { curated: f.first().copied().unwrap_or(0), total: f.get(1).copied().unwrap_or(0), other: f.get(2).copied().unwrap_or(0) }
+}
+
+#[derive(Serialize)]
 struct Service { name: String, active: bool }
 
 #[tauri::command]
@@ -127,6 +139,8 @@ fn weapons_remove(category: String) -> Result<(), String> {
     let mut a = vec!["weapons", "remove"]; a.extend(category.split_whitespace()); launch_arx(&a)
 }
 #[tauri::command]
+fn weapons_browse() -> Result<(), String> { launch_arx(&["weapons", "list-all"]) }
+#[tauri::command]
 fn system_update() -> Result<(), String> { launch_arx(&["upgrade"]) }
 #[tauri::command]
 fn kernel_install(flavor: String) -> Result<(), String> {
@@ -142,9 +156,10 @@ fn kernel_remove(flavor: String) -> Result<(), String> {
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
-            system_info, updates_count, kernels_list, weapons_categories, services_status,
-            weapons_install, weapons_remove, system_update, kernel_install, kernel_remove,
-            perf::perf_status, perf::perf_set_governor, perf::perf_set_epp, perf::perf_set_turbo, perf::perf_apply_profile
+            system_info, updates_count, kernels_list, weapons_categories, arsenal_totals, services_status,
+            weapons_install, weapons_remove, weapons_browse, system_update, kernel_install, kernel_remove,
+            perf::perf_status, perf::perf_set_governor, perf::perf_set_epp, perf::perf_set_turbo, perf::perf_apply_profile,
+            net::net_status, net::net_ports, net::net_disable_service, net::net_block_port
         ])
         .run(tauri::generate_context!())
         .expect("error while running the ArxOS Control Center");
