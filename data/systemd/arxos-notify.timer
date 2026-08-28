@@ -1,0 +1,11 @@
+[Unit]
+Description=Check for ArxOS updates periodically (worldwide ping)
+
+[Timer]
+OnStartupSec=2min
+OnUnitActiveSec=90min
+RandomizedDelaySec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

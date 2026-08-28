@@ -42,7 +42,10 @@ fn system_info() -> SysInfo {
 
 #[tauri::command]
 fn updates_count() -> usize {
-    // available updates without hitting the network hard (uses the local sync DBs)
+    // prefer the count arxos-notify already computed on its last ping (instant, and it's
+    // what the desktop notification was based on); fall back to a fresh local check.
+    let cache = std::env::var("XDG_CACHE_HOME").unwrap_or_else(|_| format!("{}/.cache", std::env::var("HOME").unwrap_or_default()));
+    if let Ok(n) = read(&format!("{cache}/arxos/update-count")).trim().parse::<usize>() { return n; }
     run("arx", &["outdated"]).lines().filter(|l| !l.trim().is_empty()).count()
 }
 
