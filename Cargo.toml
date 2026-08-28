@@ -1,0 +1,21 @@
+# ArxOS Control Center workspace. Everything here ships as a COMPILED BINARY with
+# PRIVATE SOURCE (public `arxctl-dist` mirror carries binaries + install.sh only), so
+# no security-sensitive component leaks its internals.
+#   - src-tauri : the Control Center GUI app (binary `arxctl`)
+#   - anond     : the ArxOS anonymity daemon (binary `anond`), bundled inside arxctl
+#                 and driven from its Privacy panel. Added when anond lands.
+[workspace]
+resolver = "2"
+members = ["src-tauri"]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2021"
+authors = ["0xb0rn3"]
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true
+codegen-units = 1
+panic = "abort"

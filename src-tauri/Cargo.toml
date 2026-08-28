@@ -1,0 +1,21 @@
+[package]
+name = "arxctl"
+version = "0.0.1"
+edition = "2021"
+description = "ArxOS Control Center — the native Rust command deck for the system"
+authors = ["0xb0rn3"]
+build = "build.rs"
+
+# the binary is `arxctl`; the library holds the command handlers so they can be tested.
+[[bin]]
+name = "arxctl"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "process", "macros", "io-util", "time"] }
