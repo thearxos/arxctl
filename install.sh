@@ -38,6 +38,13 @@ fi
 $S install -Dm755 "$D/arxos-news"   /usr/local/bin/arxos-news   2>/dev/null
 $S install -Dm755 "$D/arxos-kernel" /usr/local/bin/arxos-kernel 2>/dev/null
 
+# --- hardware-info cache (memory type/speed for the dashboard; dmidecode needs root) --------
+command -v dmidecode >/dev/null 2>&1 || $S pacman -S --noconfirm --needed dmidecode 2>/dev/null || true
+$S install -Dm755 "$D/data/arxos-hwinfo.sh"              /usr/local/bin/arxos-hwinfo
+$S install -Dm644 "$D/data/systemd/arxos-hwinfo.service" /usr/lib/systemd/system/arxos-hwinfo.service
+$S systemctl enable arxos-hwinfo.service 2>/dev/null || true
+$S systemctl start  arxos-hwinfo.service 2>/dev/null || true
+
 # --- icon + menu entry -------------------------------------------------------
 ICON="$D/src-tauri/icons/icon.png"; [ -f "$ICON" ] || ICON="$D/assets/icons/arxctl.png"
 [ -f "$ICON" ] && $S install -Dm644 "$ICON" /usr/share/icons/hicolor/512x512/apps/arxctl.png

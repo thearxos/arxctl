@@ -22,7 +22,7 @@ fn run(cmd: &str, args: &[&str]) -> String {
 // ---------- read-only system state ----------
 
 #[derive(Serialize)]
-struct SysInfo { host: String, distro: String, kernel: String, uptime: String, cpu: String, mem_used: u64, mem_total: u64, load: String }
+struct SysInfo { host: String, distro: String, kernel: String, uptime: String, cpu: String, mem_used: u64, mem_total: u64, mem_type: String, load: String }
 
 #[tauri::command]
 fn system_info() -> SysInfo {
@@ -37,8 +37,13 @@ fn system_info() -> SysInfo {
     let mi = read("/proc/meminfo");
     let g = |k: &str| mi.lines().find_map(|l| l.strip_prefix(k)).and_then(|v| v.split_whitespace().next()).and_then(|v| v.parse::<u64>().ok()).unwrap_or(0);
     let (total, avail) = (g("MemTotal:"), g("MemAvailable:"));
+    // memory TYPE + speed from the boot-cached hwinfo (dmidecode needs root; the GUI does not).
+    let hw = read("/run/arxos/hwinfo");
+    let hg = |k: &str| hw.lines().find_map(|l| l.strip_prefix(k)).map(|v| v.trim().to_string()).unwrap_or_default();
+    let (mt, ms) = (hg("MEMTYPE="), hg("MEMSPEED="));
+    let mem_type = if !mt.is_empty() && !ms.is_empty() { format!("{mt} · {ms}") } else { mt };
     let load = read("/proc/loadavg").split_whitespace().take(3).collect::<Vec<_>>().join(" ");
-    SysInfo { host, distro, kernel, uptime, cpu, mem_used: total.saturating_sub(avail), mem_total: total, load }
+    SysInfo { host, distro, kernel, uptime, cpu, mem_used: total.saturating_sub(avail), mem_total: total, mem_type, load }
 }
 
 #[tauri::command]
@@ -141,17 +146,27 @@ fn services_status() -> Vec<Service> {
 fn safe_token(s: &str) -> bool { !s.is_empty() && s.len() <= 40 && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b' ') }
 fn have(bin: &str) -> bool { std::env::var("PATH").unwrap_or_default().split(':').any(|d| std::path::Path::new(d).join(bin).exists()) }
 
-// launch the OS terminal running `arx <args>`, held open after it finishes.
-fn launch_arx(arx_args: &[&str]) -> Result<(), String> {
-    let mut cmd = if have("konsole") {
-        let mut c = std::process::Command::new("konsole"); c.args(["--hold", "-e", "arx"]); c
-    } else if have("xterm") {
-        let mut c = std::process::Command::new("xterm"); c.args(["-hold", "-e", "arx"]); c
-    } else if have("x-terminal-emulator") {
-        let mut c = std::process::Command::new("x-terminal-emulator"); c.args(["-e", "arx"]); c
-    } else { return Err("no terminal emulator found".into()); };
-    cmd.args(arx_args);
+// Wrap a shell command so the terminal TRULY exits when it finishes: on success it pauses
+// briefly (so the result is readable) then the window closes on its own; on failure it waits
+// for the user so the error can be read. We deliberately do NOT use the terminal's --hold
+// (that leaves a dead window open forever — the "hang" users hit).
+fn wrap_close(cmd: &str) -> String {
+    format!("{cmd}; __rc=$?; echo; if [ $__rc -eq 0 ]; then echo '  ✔ done — closing…'; sleep 3; \
+             else echo '  ✖ finished with errors'; read -r -t 120 -p '  press Enter to close… ' _; fi")
+}
+
+// open the OS terminal running a bash command, NOT held open (wrap_close handles the exit).
+fn spawn_terminal(bash_cmd: &str) -> Result<(), String> {
+    let mut cmd = if have("konsole") { let mut c = std::process::Command::new("konsole"); c.args(["-e", "bash", "-c", bash_cmd]); c }
+        else if have("xterm") { let mut c = std::process::Command::new("xterm"); c.args(["-e", "bash", "-c", bash_cmd]); c }
+        else if have("x-terminal-emulator") { let mut c = std::process::Command::new("x-terminal-emulator"); c.args(["-e", "bash", "-c", bash_cmd]); c }
+        else { return Err("no terminal emulator found".into()); };
     cmd.spawn().map(|_| ()).map_err(|e| e.to_string())
+}
+
+// run `arx <args>` in the OS terminal; it closes itself on success. Args are safe_token-validated.
+fn launch_arx(arx_args: &[&str]) -> Result<(), String> {
+    spawn_terminal(&wrap_close(&format!("arx {}", arx_args.join(" "))))
 }
 
 #[tauri::command]
@@ -183,14 +198,10 @@ fn anond_status() -> AnondStatus {
     }
 }
 
-// launch a privileged tool in the OS terminal, held open (sudo authenticates in the terminal).
+// run `sudo <bin> <args>` in the OS terminal; sudo authenticates there and the window closes
+// itself when the command finishes (wrap_close). Args are safe_token-validated.
 fn launch_priv(bin: &str, args: &[&str]) -> Result<(), String> {
-    let mut c = if have("konsole") { let mut c = std::process::Command::new("konsole"); c.args(["--hold", "-e", "sudo", bin]); c }
-        else if have("xterm") { let mut c = std::process::Command::new("xterm"); c.args(["-hold", "-e", "sudo", bin]); c }
-        else if have("x-terminal-emulator") { let mut c = std::process::Command::new("x-terminal-emulator"); c.args(["-e", "sudo", bin]); c }
-        else { return Err("no terminal emulator found".into()); };
-    c.args(args);
-    c.spawn().map(|_| ()).map_err(|e| e.to_string())
+    spawn_terminal(&wrap_close(&format!("sudo {bin} {}", args.join(" "))))
 }
 
 #[tauri::command]

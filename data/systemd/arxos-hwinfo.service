@@ -1,0 +1,11 @@
+[Unit]
+Description=ArxOS hardware info cache (memory type/speed for the Control Center)
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/arxos-hwinfo
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -32,7 +32,8 @@ loaders.dashboard = async () => {
   $('#d-kernel').textContent = s.kernel;
   $('#d-uptime').textContent = 'up ' + s.uptime;
   $('#d-load').textContent = s.load;
-  $('#d-cpu').textContent = s.cpu;
+  // memory TYPE (DDR4 · 3200 MT/s) under the bar; fall back to the total where SMBIOS is silent (VMs)
+  $('#d-cpu').textContent = s.mem_type ? s.mem_type : `${(s.mem_total / 1048576).toFixed(1)} GiB total`;
   const pct = s.mem_total ? Math.round(s.mem_used / s.mem_total * 100) : 0;
   $('#d-mem-bar').style.width = pct + '%';
   $('#d-mem-label').textContent = `${(s.mem_used / 1048576).toFixed(1)} / ${(s.mem_total / 1048576).toFixed(1)} GiB  (${pct}%)`;
