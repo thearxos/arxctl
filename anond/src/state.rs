@@ -24,6 +24,9 @@ pub struct Session {
     pub mac_backup: Vec<(String, String)>,
     /// swap was on before the session, so we re-enable it on down.
     pub swap_was_on: bool,
+    /// the i2p overlay was started this session (so `down` stops i2pd too).
+    #[serde(default)]
+    pub i2p: bool,
 }
 
 impl Session {
@@ -31,7 +34,7 @@ impl Session {
         Session {
             state: State::Down, tor_uid,
             since: now(),
-            resolv_backup: None, mac_backup: Vec::new(), swap_was_on: false,
+            resolv_backup: None, mac_backup: Vec::new(), swap_was_on: false, i2p: false,
         }
     }
     pub fn save(&self) -> Result<()> {

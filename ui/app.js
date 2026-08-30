@@ -328,7 +328,7 @@ async function paintAnon() {
 }
 {
   const note = () => $('#anon-note');
-  $('#anon-up').addEventListener('click', () => handoff(note(), 'anond_action', { action: 'up' }, 'Going anonymous'));
+  $('#anon-up').addEventListener('click', () => handoff(note(), 'anond_action', { action: $('#anon-i2p').checked ? 'up-i2p' : 'up' }, $('#anon-i2p').checked ? 'Going anonymous (Tor + i2p)' : 'Going anonymous'));
   $('#anon-down').addEventListener('click', () => handoff(note(), 'anond_action', { action: 'down' }, 'Stopping anond'));
   $('#anon-verify').addEventListener('click', () => handoff(note(), 'anond_action', { action: 'verify' }, 'The leak test'));
   $('#anon-newid').addEventListener('click', () => handoff(note(), 'anond_action', { action: 'new-identity' }, 'A new identity'));

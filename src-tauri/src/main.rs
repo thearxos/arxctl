@@ -197,6 +197,7 @@ fn launch_priv(bin: &str, args: &[&str]) -> Result<(), String> {
 fn anond_action(action: String) -> Result<(), String> {
     match action.as_str() {
         "up" | "down" | "verify" | "new-identity" => launch_priv("anond", &[&action]),
+        "up-i2p" => launch_priv("anond", &["up", "--i2p"]), // Tor + the i2p overlay
         _ => Err("invalid action".into()),
     }
 }

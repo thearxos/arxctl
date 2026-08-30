@@ -54,6 +54,13 @@ pub fn run() -> anyhow::Result<Verify> {
     println!("DNS pinned  : {}", yn(v.dns_ok));
     println!("IPv6 blocked: {}", yn(v.ipv6_ok));
     println!("Tor exit    : {}{}", yn(v.tor_ok), if v.exit_ip.is_empty() { String::new() } else { format!(" ({})", v.exit_ip) });
+    // i2p is an optional overlay, reported when running but NOT a gate on Tor anonymity: its
+    // tunnels take minutes to build, so a not-yet-ready eepsite must not drop a working Tor.
+    if crate::i2p::running() {
+        let proxy = crate::i2p::proxy_up();
+        println!("i2p proxy   : {}", yn(proxy));
+        println!("i2p eepsite : {}", if proxy && crate::i2p::eepsite_ok() { "pass" } else { "building (tunnels take a few min)" });
+    }
     println!("verdict     : {}", if v.active() { "ACTIVE (anonymous)" } else { "DEGRADED (not fully anonymous)" });
     Ok(v)
 }

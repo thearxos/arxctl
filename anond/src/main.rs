@@ -7,6 +7,7 @@ mod util;
 mod state;
 mod killswitch;
 mod tor;
+mod i2p;
 mod dns;
 mod harden;
 mod verify;
@@ -46,11 +47,17 @@ fn up(args: &[String]) -> Result<()> {
         println!("anond is already active"); return Ok(());
     }
     let tor_uid = util::uid_of("tor")?;
+    let want_i2p = args.iter().any(|a| a == "--i2p");
     let mut sess = state::Session::new(tor_uid);
+    sess.i2p = want_i2p;
+    // kill-switch uid exemptions: Tor always; i2pd too when the overlay is requested (both
+    // egress DIRECTLY under their own uid to build their circuits/tunnels).
+    let mut uids = vec![tor_uid];
+    if want_i2p { uids.push(util::uid_of("i2pd")?); }
 
     // 1. LOCK FIRST: nothing egresses until we are proven anonymous.
     println!("[1/5] arming the kill-switch (traffic blocked until verified)…");
-    killswitch::up(tor_uid)?;
+    killswitch::up(&uids)?;
     sess.state = State::Locked; sess.save()?;
 
     // From here, ANY failure must leave the kill-switch up. We tear down cleanly only via `down`.
@@ -66,6 +73,18 @@ fn up(args: &[String]) -> Result<()> {
         sess.state = State::Bootstrapping; sess.save()?;
         tor::start()?;
         tor::wait_bootstrap(std::time::Duration::from_secs(120))?;
+        // 4b. optional i2p overlay. i2pd builds tunnels in the background; we wait only for its
+        // proxy to come up (fast), not the slow full tunnel build (eepsites take a few minutes).
+        if want_i2p {
+            // i2p is ADDITIVE: never let a slow/failed overlay drop the working Tor session.
+            println!("      + starting i2pd (i2p overlay)…");
+            match i2p::start() {
+                Ok(_) => if i2p::wait_ready(std::time::Duration::from_secs(75)).is_err() {
+                    println!("      note: i2pd still initialising (tunnels build in the background)");
+                },
+                Err(e) => println!("      note: i2p unavailable ({e:#}); continuing on Tor only"),
+            }
+        }
         // 5. PROVE it before declaring Active
         println!("[5/5] verifying (no path to Active until every probe passes)…");
         Ok(verify::run()?)
@@ -94,6 +113,7 @@ fn down() -> Result<()> {
     util::require_root()?;
     let sess = state::load();
     // DRAIN in reverse; egress stays blocked until the kill-switch comes down LAST.
+    if sess.as_ref().map(|s| s.i2p).unwrap_or(false) || i2p::running() { let _ = i2p::stop(); }
     let _ = tor::stop();
     let _ = dns::restore(sess.as_ref());
     if let Some(ref s) = sess { let _ = harden::restore(s); }
@@ -111,6 +131,7 @@ fn status() -> Result<()> {
             println!("tor\t{}", if tor::running() { "running" } else { "stopped" });
             println!("killswitch\t{}", if killswitch::is_up() { "armed" } else { "down" });
             println!("dns\t{}", if dns::is_pinned() { "pinned" } else { "open" });
+            println!("i2p\t{}", if i2p::running() { "running" } else { "off" });
             if s.state == State::Active {
                 if let Ok(ip) = verify::exit_ip() { println!("exit_ip\t{ip}"); }
             }

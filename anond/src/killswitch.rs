@@ -18,21 +18,24 @@ pub const DNS_PORT: u16 = 5353;
 // anonkit's behaviour; it is a deliberate usability/lockout tradeoff, documented as such.
 const LAN: &str = "192.168.0.0/16";
 
-fn ruleset(tor_uid: u32) -> String {
+fn ruleset(exempt_uids: &[u32]) -> String {
+    // exempted uids (Tor, and i2pd when --i2p) egress DIRECTLY: their traffic is neither
+    // redirected into Tor nor dropped. Everything else clearnet is forced through Tor.
+    let uids = exempt_uids.iter().map(|u| u.to_string()).collect::<Vec<_>>().join(", ");
     format!(
         "table inet anond {{\n\
          \tchain output_nat {{\n\
          \t\ttype nat hook output priority -100; policy accept;\n\
-         \t\tmeta skuid {tor_uid} return\n\
          \t\tudp dport 53 redirect to :{DNS_PORT}\n\
          \t\ttcp dport 53 redirect to :{DNS_PORT}\n\
+         \t\tmeta skuid {{ {uids} }} return\n\
          \t\tip daddr {{ 127.0.0.0/8, {LAN} }} return\n\
          \t\ttcp flags & (fin|syn|rst|ack) == syn redirect to :{TRANS_PORT}\n\
          \t}}\n\
          \tchain output {{\n\
          \t\ttype filter hook output priority 0; policy drop;\n\
          \t\toif \"lo\" accept\n\
-         \t\tmeta skuid {tor_uid} accept\n\
+         \t\tmeta skuid {{ {uids} }} accept\n\
          \t\tct state established,related accept\n\
          \t\tip daddr {{ 127.0.0.0/8, {LAN} }} accept\n\
          \t\tudp dport {DNS_PORT} accept\n\
@@ -48,12 +51,12 @@ fn ruleset(tor_uid: u32) -> String {
     )
 }
 
-pub fn up(tor_uid: u32) -> Result<()> {
+pub fn up(exempt_uids: &[u32]) -> Result<()> {
     // clear any stale copy first, then apply atomically from stdin.
     down_quiet();
     let mut child = Command::new("nft").args(["-f", "-"]).stdin(Stdio::piped())
         .spawn().context("spawn nft (is nftables installed?)")?;
-    child.stdin.take().context("nft stdin")?.write_all(ruleset(tor_uid).as_bytes())?;
+    child.stdin.take().context("nft stdin")?.write_all(ruleset(exempt_uids).as_bytes())?;
     let st = child.wait().context("wait nft")?;
     anyhow::ensure!(st.success(), "kill-switch ruleset was rejected by nft");
     Ok(())
