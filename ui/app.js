@@ -110,9 +110,14 @@ loaders.weapons = async () => {
   // live arsenal size: ping the real repo index for the total + the uncategorised "other"
   invoke('arsenal_totals').then(t => paintArsenalTotal(t, box)).catch(() => {});
 };
+// Force refresh re-checks the live arsenal AND rebuilds the XFCE Weapons menu, so the
+// desktop menu always tracks the same arsenal this panel shows.
 $('#btn-weap-refresh').addEventListener('click', async (e) => {
   e.target.disabled = true; e.target.textContent = 'Refreshing…';
-  try { paintArsenalTotal(await invoke('arsenal_totals_refresh'), $('#weap-cats')); }
+  try {
+    paintArsenalTotal(await invoke('arsenal_totals_refresh'), $('#weap-cats'));
+    await invoke('weapons_menu_rebuild'); // rebuilds the desktop menu in a terminal
+  }
   catch (err) { alert('Could not refresh: ' + err); }
   finally { e.target.disabled = false; e.target.textContent = 'Force refresh arsenal count'; }
 });

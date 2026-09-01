@@ -149,6 +149,14 @@ fn arsenal_totals_refresh() -> ArsenalTotals {
     parse_totals(&run("arx", &["weapons", "totals", "--force"]))
 }
 
+// Rebuild the XFCE Weapons menu from tools.db so the desktop menu tracks the same
+// arsenal the Control Center shows. Needs root to write the system menu, so it hands
+// off to a terminal like every other privileged action here.
+#[tauri::command]
+fn weapons_menu_rebuild() -> Result<(), String> {
+    spawn_terminal(&wrap_close("sudo arx weapons menu"))
+}
+
 #[derive(Serialize)]
 struct Service { name: String, active: bool }
 
@@ -253,7 +261,7 @@ fn kernel_remove(flavor: String) -> Result<(), String> {
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
-            system_info, updates_count, updates_breakdown, kernels_list, kernels_manifest, weapons_categories, arsenal_totals, arsenal_totals_refresh, services_status,
+            system_info, updates_count, updates_breakdown, kernels_list, kernels_manifest, weapons_categories, arsenal_totals, arsenal_totals_refresh, weapons_menu_rebuild, services_status,
             weapons_install, weapons_remove, weapons_browse, system_update, sync_databases, kernel_install, kernel_remove,
             anond_status, anond_action,
             perf::perf_status, perf::perf_set_governor, perf::perf_set_epp, perf::perf_set_turbo, perf::perf_apply_profile,
