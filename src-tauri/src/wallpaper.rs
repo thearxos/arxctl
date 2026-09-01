@@ -1,102 +1,125 @@
-// wallpaper.rs — the Wallpaper panel backend. Read-only scan of the standard
-// background directories (no privilege needed) plus a setter that applies the
-// choice to every XFCE monitor/workspace property via xfconf-query, falling
-// back to feh --bg-fill when xfconf is unavailable (non-XFCE session, or the
-// property write fails). Paths are canonicalized and validated before any
-// command runs — nothing here ever touches a shell.
-use serde::Serialize;
-use std::path::{Path, PathBuf};
+// wallpaper.rs — the Wallpaper panel backend. This is a thin driver over the
+// real wallpaper engine, `arxos-wallpaper-engine` (native Go, per the ARXOS
+// language policy: hot paths are compiled, not Python). It owns the curated
+// background dirs and the exact xfconf-query + xfdesktop --reload sequence
+// that actually applies a background across every monitor/workspace. We never
+// reimplement that logic here — one engine, one set of semantics. The GTK
+// browser (arxos-wallpaper, Python glue) shells into the same binary.
+use serde::{Deserialize, Serialize};
+use std::path::Path;
+use std::process::Command;
 
-const EXTS: &[&str] = &["png", "jpg", "jpeg", "webp", "bmp"];
-
-fn dirs() -> Vec<PathBuf> {
-    let home = std::env::var("HOME").unwrap_or_default();
-    vec![
-        PathBuf::from("/usr/share/backgrounds/arxos"),
-        PathBuf::from("/usr/share/backgrounds"),
-        PathBuf::from("/usr/share/wallpapers"),
-        PathBuf::from(format!("{home}/Pictures/Wallpapers")),
-        PathBuf::from(format!("{home}/.local/share/backgrounds")),
-    ]
+fn engine() -> Option<&'static str> {
+    for cand in ["/usr/local/bin/arxos-wallpaper-engine", "arxos-wallpaper-engine"] {
+        if cand.starts_with('/') {
+            if Path::new(cand).is_file() { return Some(cand); }
+        } else if std::env::var("PATH").unwrap_or_default().split(':').any(|d| Path::new(d).join(cand).exists()) {
+            return Some(cand);
+        }
+    }
+    None
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct Wallpaper {
     pub path: String,
     pub name: String,
+    pub source: String,          // which curated dir it came from: arxos | system | user
+    #[serde(default)]
+    pub width: u32,               // 0 when the format's header couldn't be decoded (webp)
+    #[serde(default)]
+    pub height: u32,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Screen {
+    pub width: u32,
+    pub height: u32,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct WallpaperCatalog {
+    pub wallpapers: Vec<Wallpaper>,
+    // every image-style the desktop manager itself supports (none/centered/tiled/
+    // stretched/scaled/zoomed) — the engine is the single source of truth for this list.
+    pub styles: Vec<String>,
+    pub default_style: String,
+    // the live X screen size (from xrandr), so the UI can flag which wallpapers
+    // already match the desktop's actual resolution.
+    pub desktop: Screen,
 }
 
 #[tauri::command]
-pub fn wallpapers_list() -> Vec<Wallpaper> {
-    let mut out = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    for dir in dirs() {
-        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
-        for e in entries.flatten() {
-            let p = e.path();
-            let Some(ext) = p.extension().and_then(|x| x.to_str()) else { continue };
-            if !EXTS.iter().any(|x| x.eq_ignore_ascii_case(ext)) { continue }
-            let Ok(canon) = p.canonicalize() else { continue };
-            let Some(path_str) = canon.to_str() else { continue };
-            if !seen.insert(path_str.to_string()) { continue }
-            let name = p.file_stem().and_then(|s| s.to_str()).unwrap_or("wallpaper").to_string();
-            out.push(Wallpaper { path: path_str.to_string(), name });
-        }
+pub fn wallpapers_list() -> Result<WallpaperCatalog, String> {
+    let bin = engine().ok_or("arxos-wallpaper-engine is not installed")?;
+    let out = Command::new(bin).arg("--list-json").output().map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
     }
-    out.sort_by(|a, b| a.name.cmp(&b.name));
-    out
-}
-
-fn have(bin: &str) -> bool {
-    std::env::var("PATH").unwrap_or_default().split(':').any(|d| Path::new(d).join(bin).exists())
-}
-
-// Validate the path is a real, readable image file under one of the known
-// background directories or the user's home — never trust a raw string from
-// the frontend into a Command arg without this.
-fn validate(path: &str) -> Result<PathBuf, String> {
-    let p = Path::new(path);
-    let canon = p.canonicalize().map_err(|_| "wallpaper file not found".to_string())?;
-    if !canon.is_file() { return Err("not a file".into()); }
-    let ext_ok = canon.extension().and_then(|x| x.to_str())
-        .map(|ext| EXTS.iter().any(|x| x.eq_ignore_ascii_case(ext))).unwrap_or(false);
-    if !ext_ok { return Err("not a supported image type".into()); }
-    Ok(canon)
+    serde_json::from_slice(&out.stdout).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn wallpaper_set(path: String) -> Result<(), String> {
-    let canon = validate(&path)?;
-    let s = canon.to_str().ok_or("invalid path")?;
+pub fn wallpaper_set(path: String, style: Option<String>) -> Result<(), String> {
+    let bin = engine().ok_or("arxos-wallpaper-engine is not installed")?;
+    // the engine itself validates the path is a real image and the style name before
+    // touching xfconf
+    let mut args = vec!["--set".to_string(), path];
+    if let Some(s) = style { args.push("--style".to_string()); args.push(s); }
+    let st = Command::new(bin).args(&args).status().map_err(|e| e.to_string())?;
+    if st.success() { Ok(()) } else { Err("arxos-wallpaper --set failed".into()) }
+}
 
-    if have("xfconf-query") {
-        // Every monitor/workspace image-path + image-style property under the
-        // xfce4-desktop channel, so the change sticks regardless of layout.
-        if let Ok(out) = std::process::Command::new("xfconf-query")
-            .args(["-c", "xfce4-desktop", "-p", "/backdrop", "-l"]).output()
-        {
-            let props = String::from_utf8_lossy(&out.stdout);
-            let mut applied = false;
-            for prop in props.lines().filter(|l| l.ends_with("last-image")) {
-                let ok = std::process::Command::new("xfconf-query")
-                    .args(["-c", "xfce4-desktop", "-p", prop, "-s", s])
-                    .status().map(|st| st.success()).unwrap_or(false);
-                applied = applied || ok;
-                // keep the fill style sane (3 = zoomed/scaled)
-                let style_prop = prop.replace("last-image", "image-style");
-                let _ = std::process::Command::new("xfconf-query")
-                    .args(["-c", "xfce4-desktop", "-p", &style_prop, "-s", "3", "-t", "int"])
-                    .status();
-            }
-            if applied { return Ok(()); }
-        }
+#[derive(Serialize, Deserialize)]
+pub struct FetchResult {
+    pub added: u32,
+    pub limit: u32,
+    pub found: u32,
+    pub dest: String,
+    #[serde(default)]
+    pub files: Vec<String>,
+    #[serde(default)]
+    pub errors: Vec<String>,
+}
+
+// "Download more" — curated GitHub sources + Unsplash, ported feature-for-feature
+// from the original standalone wallpaper tool. This blocks until the batch
+// finishes (the engine parallelizes internally); the panel shows a spinner.
+#[tauri::command]
+pub fn wallpaper_fetch(limit: u32, source: String) -> Result<FetchResult, String> {
+    let bin = engine().ok_or("arxos-wallpaper-engine is not installed")?;
+    if !["curated", "unsplash", "both"].contains(&source.as_str()) {
+        return Err("source must be curated, unsplash, or both".into());
     }
-
-    if have("feh") {
-        let ok = std::process::Command::new("feh").args(["--bg-fill", s]).status()
-            .map(|st| st.success()).unwrap_or(false);
-        if ok { return Ok(()); }
+    let out = Command::new(bin)
+        .args(["--fetch", "--limit", &limit.to_string(), "--source", &source])
+        .output().map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
     }
+    serde_json::from_slice(&out.stdout).map_err(|e| e.to_string())
+}
 
-    Err("no xfconf-query or feh available to set the wallpaper".into())
+#[derive(Serialize, Deserialize)]
+pub struct CycleStatus {
+    pub enabled: bool,
+    pub shuffle: bool,
+    pub interval_secs: u32,
+}
+
+#[tauri::command]
+pub fn wallpaper_cycle_status() -> Result<CycleStatus, String> {
+    let bin = engine().ok_or("arxos-wallpaper-engine is not installed")?;
+    let out = Command::new(bin).arg("--cycle-status").output().map_err(|e| e.to_string())?;
+    serde_json::from_slice(&out.stdout).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn wallpaper_cycle_set(enabled: Option<bool>, shuffle: Option<bool>) -> Result<CycleStatus, String> {
+    let bin = engine().ok_or("arxos-wallpaper-engine is not installed")?;
+    let mut args = vec!["--cycle-set".to_string()];
+    match enabled { Some(true) => args.push("--on".into()), Some(false) => args.push("--off".into()), None => {} }
+    match shuffle { Some(true) => args.push("--shuffle-on".into()), Some(false) => args.push("--shuffle-off".into()), None => {} }
+    let out = Command::new(bin).args(&args).output().map_err(|e| e.to_string())?;
+    serde_json::from_slice(&out.stdout).map_err(|e| e.to_string())
 }

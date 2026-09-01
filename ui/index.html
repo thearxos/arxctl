@@ -121,6 +121,31 @@
 
     <section class="panel" id="p-wallpaper">
       <header class="phead"><h1 class="pf">Wallpaper</h1><p>Set the desktop background. Applied instantly to every monitor and workspace.</p></header>
+      <div class="wall-toolbar">
+        <button class="btn-g sm" id="wall-slide">Slideshow</button>
+        <button class="btn-g sm" id="wall-shuffle">Shuffle</button>
+        <button class="btn-g sm" id="wall-surprise">Surprise me</button>
+        <button class="btn-g sm" id="wall-download">Download more</button>
+        <div class="grow"></div>
+        <label class="wall-style-label">Style<select id="wall-style"></select></label>
+      </div>
+      <div class="wall-dl card" id="wall-dl" hidden>
+        <div class="wall-dl-head"><b>Download wallpapers</b><button class="wall-dl-x" id="wall-dl-close" title="Close">&times;</button></div>
+        <p class="dim">Fetches individual images in parallel from curated GitHub sources and/or Unsplash.</p>
+        <div class="wall-dl-row">
+          <label>How many <input type="number" id="wall-dl-n" min="1" max="200" value="20"></label>
+          <label>Source
+            <select id="wall-dl-src">
+              <option value="curated">Curated · GitHub</option>
+              <option value="unsplash">Unsplash</option>
+              <option value="both">Both</option>
+            </select>
+          </label>
+          <button class="btn-p sm" id="wall-dl-go">Download</button>
+        </div>
+        <div class="wall-dl-log" id="wall-dl-log"></div>
+      </div>
+
       <div class="wall-grid" id="wall-grid"><div class="soon">Scanning backgrounds…</div></div>
     </section>
 

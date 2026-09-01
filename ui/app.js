@@ -356,24 +356,88 @@ loaders.info = async () => {
 };
 
 // ---- wallpaper ----
+// The engine (arxos-wallpaper) is the single source of truth for both the wallpaper
+// list and the full set of styles the desktop manager itself supports — this panel
+// is a thin driver over it, same as every other terminal-handoff panel is a driver
+// over arx.
 loaders.wallpaper = async () => {
-  const box = $('#wall-grid');
-  let list; try { list = await invoke('wallpapers_list'); } catch (e) { box.innerHTML = `<div class="soon">Could not scan: ${e}</div>`; return; }
-  if (!list.length) { box.innerHTML = '<div class="soon">No backgrounds found.</div>'; return; }
+  const box = $('#wall-grid'); const sel = $('#wall-style');
+  let cat; try { cat = await invoke('wallpapers_list'); } catch (e) { box.innerHTML = `<div class="soon">Could not scan: ${e}</div>`; return; }
+  sel.innerHTML = '';
+  cat.styles.forEach(s => sel.appendChild(el('option', null, s)).value = s);
+  sel.value = cat.default_style;
+  if (!cat.wallpapers.length) { box.innerHTML = '<div class="soon">No backgrounds found.</div>'; return; }
   box.innerHTML = '';
-  list.forEach(w => {
+  const dw = cat.desktop?.width, dh = cat.desktop?.height;
+  cat.wallpapers.forEach(w => {
     const t = el('div', 'wall-tile');
     t.style.backgroundImage = `url("${encodeURI('file://' + w.path)}")`;
     t.title = w.name;
-    t.innerHTML = `<div class="wcheck"><svg viewBox="0 0 24 24"><path d="M9 16.2l-3.5-3.5L4 14.2 9 19l11-11-1.4-1.4z"/></svg></div><div class="wname">${w.name}</div>`;
+    const res = w.width && w.height ? `${w.width}×${w.height}` : '';
+    const matches = dw && w.width === dw && w.height === dh;
+    t.innerHTML = `<div class="wcheck"><svg viewBox="0 0 24 24"><path d="M9 16.2l-3.5-3.5L4 14.2 9 19l11-11-1.4-1.4z"/></svg></div>
+      <span class="wsrc wsrc-${w.source}">${w.source}</span>
+      ${matches ? '<span class="wmatch" title="Matches this desktop\'s resolution">●</span>' : ''}
+      <div class="wname">${w.name}${res ? ` <span class="wres">${res}</span>` : ''}</div>`;
     t.addEventListener('click', async () => {
       $$('.wall-tile', box).forEach(x => x.classList.remove('active'));
       t.classList.add('active');
-      try { await invoke('wallpaper_set', { path: w.path }); }
+      try { await invoke('wallpaper_set', { path: w.path, style: sel.value }); }
       catch (e) { t.classList.remove('active'); alert('Could not set wallpaper: ' + e); }
     });
     box.appendChild(t);
   });
+  // changing the style re-applies it to whichever tile is currently active
+  sel.onchange = () => {
+    const active = $('.wall-tile.active', box);
+    if (active) invoke('wallpaper_set', { path: cat.wallpapers.find(w => active.title === w.name)?.path, style: sel.value }).catch(alert);
+  };
+
+  // toolbar — same feature set as the original standalone tool (slideshow,
+  // shuffle, surprise me, download more), all driven through the one engine
+  const slideBtn = $('#wall-slide'), shufBtn = $('#wall-shuffle');
+  invoke('wallpaper_cycle_status').then(st => {
+    slideBtn.classList.toggle('on', st.enabled);
+    shufBtn.classList.toggle('on', st.shuffle);
+  }).catch(() => {});
+  slideBtn.onclick = async () => {
+    const on = !slideBtn.classList.contains('on');
+    try { const st = await invoke('wallpaper_cycle_set', { enabled: on }); slideBtn.classList.toggle('on', st.enabled); shufBtn.classList.toggle('on', st.shuffle); }
+    catch (e) { alert('Could not change slideshow: ' + e); }
+  };
+  shufBtn.onclick = async () => {
+    const on = !shufBtn.classList.contains('on');
+    try { const st = await invoke('wallpaper_cycle_set', { shuffle: on }); slideBtn.classList.toggle('on', st.enabled); shufBtn.classList.toggle('on', st.shuffle); }
+    catch (e) { alert('Could not change shuffle: ' + e); }
+  };
+  $('#wall-surprise').onclick = async () => {
+    if (!cat.wallpapers.length) return;
+    const w = cat.wallpapers[Math.floor(Math.random() * cat.wallpapers.length)];
+    try { await invoke('wallpaper_set', { path: w.path, style: sel.value }); }
+    catch (e) { alert('Could not set wallpaper: ' + e); }
+  };
+
+  const dl = $('#wall-dl'), log = $('#wall-dl-log'), goBtn = $('#wall-dl-go');
+  $('#wall-download').onclick = () => { dl.hidden = !dl.hidden; };
+  $('#wall-dl-close').onclick = () => { dl.hidden = true; };
+  goBtn.onclick = async () => {
+    const n = Math.max(1, Math.min(200, parseInt($('#wall-dl-n').value, 10) || 20));
+    const source = $('#wall-dl-src').value;
+    goBtn.disabled = true; goBtn.textContent = 'Downloading…';
+    log.textContent = `Fetching up to ${n} wallpapers (${source})…\n`;
+    try {
+      const r = await invoke('wallpaper_fetch', { limit: n, source });
+      log.textContent += `Found ${r.found} candidates, added ${r.added}:\n`;
+      r.files.forEach(f => log.textContent += `  + ${f.split('/').pop()}\n`);
+      if (r.errors?.length) log.textContent += `\n${r.errors.length} failed:\n` + r.errors.map(e => '  ! ' + e).join('\n') + '\n';
+      log.scrollTop = log.scrollHeight;
+      loaders.wallpaper();
+    } catch (e) {
+      log.textContent += `Failed: ${e}\n`;
+    } finally {
+      goBtn.disabled = false; goBtn.textContent = 'Download';
+    }
+  };
 };
 
 // first paint

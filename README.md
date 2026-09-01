@@ -45,15 +45,17 @@
 
 ## Panels
 
-- **Dashboard** live system summary.
-- **Update** the system, the kernel and the ArxOS tools in one pass (hands off to a terminal running `arx`).
-- **Weapons** the arsenal: quick loadouts and every category, installed live.
-- **Kernels** pick, install and roll back ArxOS kernels, checksum verified.
-- **Performance** governor, energy preference, turbo and per core load, straight from `/sys`.
-- **Network** live per interface throughput, and listening ports with disable/block hardening.
-- **Privacy** where anond (the ArxOS anonymity daemon) mounts, as a bundled binary.
+- **Dashboard** live system summary, including the memory type and speed (DDR4/DDR5), read from a boot-cached hardware probe.
+- **Update** the system, the kernel and the ArxOS tools in one pass. Hands off to a terminal running `arx`, which shows a clean per-package loader (one line, live percentage) and closes itself when it finishes.
+- **Weapons** the arsenal: quick loadouts (default, top 10, full) and every category, installed live. A live count of the full arsenal is fetched over the wire, and anything the catalog carries that is not yet categorised shows up under **other**.
+- **Kernels** a live loader backed by the public ArxOS kernel history: the tuning every ArxOS kernel carries, the full version history with changelogs, and install / roll back, checksum verified.
+- **Performance** governor, energy preference, turbo and per core load, straight from `/sys`. Detects a virtual machine and degrades honestly.
+- **Network** live per interface throughput read from the kernel counters, and listening ports with one click hardening (disable the service, or block the port in an isolated firewall table).
+- **Privacy** drives **anond**, the ArxOS anonymity daemon: fail closed Tor with a kill switch, DNS pinned to Tor, IPv6 dropped, an optional i2p overlay, and a runtime leak test. Bundled inside the Control Center and available as a standalone binary.
 - **Services** what is running.
 - **Info** the machine.
+
+Every action that changes the system runs in a real terminal so you watch it happen, and the window closes on its own when it succeeds.
 
 ## Install
 

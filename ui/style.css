@@ -289,6 +289,22 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opa
 ::-webkit-scrollbar-thumb:hover{background:rgba(232,112,42,.5)}
 
 /* ---- wallpaper gallery ---- */
+.wall-toolbar{display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+.wall-toolbar .btn-g.on{background:rgba(232,112,42,.9);color:#fff;border-color:var(--accent)}
+.wall-dl{display:flex;flex-direction:column;gap:12px;margin-bottom:16px}
+.wall-dl-head{display:flex;justify-content:space-between;align-items:center}
+.wall-dl-x{background:none;border:none;color:var(--muted);font-size:1.4rem;cursor:pointer;line-height:1}
+.wall-dl-row{display:flex;gap:12px;align-items:end;flex-wrap:wrap}
+.wall-dl-row label{display:flex;flex-direction:column;gap:4px;font-size:.78rem;color:var(--muted)}
+.wall-dl-row input,.wall-dl-row select{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);
+  color:var(--fg);border-radius:8px;padding:6px 9px;font-size:.85rem}
+.wall-dl-row input{width:80px}
+.wall-dl-log{font-family:'JetBrains Mono';font-size:.75rem;white-space:pre-wrap;color:var(--muted);
+  max-height:220px;overflow-y:auto;background:rgba(0,0,0,.25);border-radius:8px;padding:10px}
+.wall-style-label{display:flex;align-items:center;gap:9px;font-size:.8rem;color:var(--muted)}
+.wall-style-label select{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);color:var(--fg);
+  border-radius:8px;padding:6px 10px;font-size:.83rem;text-transform:capitalize}
+.wall-style-label select:focus{outline:none;border-color:var(--accent)}
 .wall-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:14px}
 .wall-tile{position:relative;border-radius:14px;overflow:hidden;aspect-ratio:16/10;cursor:pointer;
   border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03) center/cover;transition:transform .15s,border-color .15s}
@@ -296,7 +312,13 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opa
 .wall-tile.active{border-color:var(--accent);box-shadow:0 0 0 2px rgba(232,112,42,.35)}
 .wall-tile .wname{position:absolute;left:0;right:0;bottom:0;padding:8px 10px 7px;font-size:.75rem;
   background:linear-gradient(to top,rgba(0,0,0,.72),transparent);color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wall-tile .wres{color:rgba(255,255,255,.55);font-family:'JetBrains Mono';font-size:.68rem}
 .wall-tile .wcheck{position:absolute;top:8px;right:8px;width:20px;height:20px;border-radius:50%;
   background:var(--accent);display:flex;align-items:center;justify-content:center;opacity:0}
 .wall-tile.active .wcheck{opacity:1}
 .wall-tile .wcheck svg{width:13px;height:13px;fill:#111}
+.wall-tile .wsrc{position:absolute;top:8px;left:8px;font-size:.6rem;letter-spacing:.08em;text-transform:uppercase;
+  font-weight:700;padding:2px 7px;border-radius:20px;background:rgba(0,0,0,.55);color:rgba(255,255,255,.85)}
+.wall-tile .wsrc-arxos{background:rgba(232,112,42,.35);color:#ffd9c0}
+.wall-tile .wmatch{position:absolute;top:9px;right:8px;color:var(--ok,#4ec37a);font-size:.7rem;text-shadow:0 0 6px rgba(78,195,122,.7)}
+.wall-tile.active .wmatch{right:32px}
