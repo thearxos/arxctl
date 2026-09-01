@@ -188,6 +188,18 @@
         <div class="card"><b>Proven at runtime</b><p class="dim">IPv6 egress is dropped and anond proves each invariant at runtime, reaching Active only when every probe passes.</p></div>
       </div>
       <div class="handoff" id="anon-note" hidden></div>
+
+      <div class="weap-sub" style="margin-top:28px">Browser hardening</div>
+      <div class="card row bh-card">
+        <span class="dot" id="bh-dot"></span>
+        <div class="grow">
+          <b>Patch every installed browser</b>
+          <div class="dim" style="font-size:.82rem" id="bh-detail">Checking which browsers are installed…</div>
+        </div>
+        <button class="btn-p sm" id="btn-browser-harden">Patch browsers</button>
+      </div>
+      <p class="dim" style="font-size:.82rem;margin-top:10px">WebRTC cannot leak your real IP even behind a transparent proxy, the browsers' own DNS-over-HTTPS is turned off so lookups follow anond's Tor-pinned resolver instead of going straight to a third party, and telemetry, prefetch, and tracking channels are closed. Re-applied automatically after each browser update; this button re-asserts it on demand.</p>
+      <div class="handoff" id="bh-note" hidden></div>
     </section>
 
     <section class="panel" id="p-vms">

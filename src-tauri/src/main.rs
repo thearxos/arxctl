@@ -243,6 +243,23 @@ fn anond_action(action: String) -> Result<(), String> {
         _ => Err("invalid action".into()),
     }
 }
+// Re-apply the ArxOS browser hardening (Firefox, Waterfox, Brave): WebRTC leak protection,
+// browser DoH off so DNS defers to anond's Tor pin, telemetry and tracking closed.
+#[tauri::command]
+fn browser_harden() -> Result<(), String> {
+    spawn_terminal(&wrap_close("sudo /usr/lib/arxos/harden-browsers.sh"))
+}
+
+// Which browsers are installed and therefore covered by the patch action.
+#[tauri::command]
+fn browser_status() -> Vec<String> {
+    let mut found = Vec::new();
+    for (name, probe) in [("Firefox", "/usr/lib/firefox"), ("Waterfox", "/opt/waterfox"), ("Brave", "/etc/brave")] {
+        if std::path::Path::new(probe).exists() { found.push(name.to_string()); }
+    }
+    found
+}
+
 #[tauri::command]
 fn system_update() -> Result<(), String> { launch_arx(&["upgrade"]) }
 #[tauri::command]
@@ -261,7 +278,7 @@ fn kernel_remove(flavor: String) -> Result<(), String> {
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
-            system_info, updates_count, updates_breakdown, kernels_list, kernels_manifest, weapons_categories, arsenal_totals, arsenal_totals_refresh, weapons_menu_rebuild, services_status,
+            system_info, updates_count, updates_breakdown, kernels_list, kernels_manifest, weapons_categories, arsenal_totals, arsenal_totals_refresh, weapons_menu_rebuild, browser_harden, browser_status, services_status,
             weapons_install, weapons_remove, weapons_browse, system_update, sync_databases, kernel_install, kernel_remove,
             anond_status, anond_action,
             perf::perf_status, perf::perf_set_governor, perf::perf_set_epp, perf::perf_set_turbo, perf::perf_apply_profile,

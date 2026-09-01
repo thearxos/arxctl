@@ -352,9 +352,22 @@ const ANON_UI = {
 };
 loaders.privacy = async () => {
   await paintAnon();
+  paintBrowserHardening();
   clearInterval(anonTimer);
   anonTimer = setInterval(() => { if ($('#p-privacy').classList.contains('active')) paintAnon(); else clearInterval(anonTimer); }, 2000);
 };
+async function paintBrowserHardening() {
+  let found; try { found = await invoke('browser_status'); } catch { return; }
+  const dot = $('#bh-dot'), detail = $('#bh-detail');
+  if (found.length) {
+    dot.className = 'dot on';
+    detail.textContent = 'Covers ' + found.join(', ') + ' on this system.';
+  } else {
+    dot.className = 'dot off';
+    detail.textContent = 'No supported browser found (Firefox, Waterfox, or Brave).';
+  }
+  $('#btn-browser-harden').disabled = !found.length;
+}
 async function paintAnon() {
   let s; try { s = await invoke('anond_status'); } catch { return; }
   const u = ANON_UI[s.state] || ANON_UI.Down;
@@ -370,6 +383,8 @@ async function paintAnon() {
   $('#anon-down').addEventListener('click', () => handoff(note(), 'anond_action', { action: 'down' }, 'Stopping anond'));
   $('#anon-verify').addEventListener('click', () => handoff(note(), 'anond_action', { action: 'verify' }, 'The leak test'));
   $('#anon-newid').addEventListener('click', () => handoff(note(), 'anond_action', { action: 'new-identity' }, 'A new identity'));
+  $('#btn-browser-harden').addEventListener('click', () =>
+    handoff($('#bh-note'), 'browser_harden', {}, 'Browser hardening'));
 }
 
 // ---- services ----
