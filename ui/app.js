@@ -86,29 +86,36 @@ function addCatRow(box, c, extra) {
   });
   box.appendChild(row);
 }
+function paintArsenalTotal(t, box) {
+  if (!t.total) return;
+  $('#weap-total').hidden = false;
+  $('#weap-total').innerHTML = `<b>${t.total.toLocaleString()}</b> tools in the full arsenal <span class="dim">· ${t.curated.toLocaleString()} curated · ${t.other.toLocaleString()} in <b>other</b></span> <span class="live-dot"></span><span class="dim">live</span>`;
+  if (t.other && !$('.cat[data-other]', box)) {
+    const row = el('div', 'cat other');
+    row.setAttribute('data-other', '1');
+    row.innerHTML = `<span class="n">other</span><span class="c">${t.other.toLocaleString()}</span>`;
+    row.addEventListener('click', () => {
+      $$('.cat', box).forEach(x => x.classList.remove('on'));
+      row.classList.add('on'); weapSel = 'other';
+      $('#weap-selected').textContent = 'other'; $('#btn-weap-install').disabled = false; $('#btn-weap-remove').disabled = false;
+    });
+    box.appendChild(row);
+  }
+}
 loaders.weapons = async () => {
   if ($('#weap-cats').childElementCount) return; // once
   const box = $('#weap-cats');
   const cats = await invoke('weapons_categories');
   cats.forEach(c => addCatRow(box, c));
   // live arsenal size: ping the real repo index for the total + the uncategorised "other"
-  invoke('arsenal_totals').then(t => {
-    if (!t.total) return;
-    $('#weap-total').hidden = false;
-    $('#weap-total').innerHTML = `<b>${t.total.toLocaleString()}</b> tools in the full arsenal <span class="dim">· ${t.curated.toLocaleString()} curated · ${t.other.toLocaleString()} in <b>other</b></span> <span class="live-dot"></span><span class="dim">live</span>`;
-    if (t.other && !$('.cat[data-other]', box)) {
-      const row = el('div', 'cat other');
-      row.setAttribute('data-other', '1');
-      row.innerHTML = `<span class="n">other</span><span class="c">${t.other.toLocaleString()}</span>`;
-      row.addEventListener('click', () => {
-        $$('.cat', box).forEach(x => x.classList.remove('on'));
-        row.classList.add('on'); weapSel = 'other';
-        $('#weap-selected').textContent = 'other'; $('#btn-weap-install').disabled = false; $('#btn-weap-remove').disabled = false;
-      });
-      box.appendChild(row);
-    }
-  }).catch(() => {});
+  invoke('arsenal_totals').then(t => paintArsenalTotal(t, box)).catch(() => {});
 };
+$('#btn-weap-refresh').addEventListener('click', async (e) => {
+  e.target.disabled = true; e.target.textContent = 'Refreshing…';
+  try { paintArsenalTotal(await invoke('arsenal_totals_refresh'), $('#weap-cats')); }
+  catch (err) { alert('Could not refresh: ' + err); }
+  finally { e.target.disabled = false; e.target.textContent = 'Force refresh arsenal count'; }
+});
 $('#btn-weap-install').addEventListener('click', () => {
   if (weapSel) handoff($('#weap-note'), 'weapons_install', { category: weapSel }, `Installing the ${weapSel} arsenal`);
 });

@@ -129,12 +129,24 @@ fn weapons_categories() -> Vec<Category> {
 #[derive(Serialize)]
 struct ArsenalTotals { curated: usize, total: usize, other: usize }
 
+fn parse_totals(out: &str) -> ArsenalTotals {
+    let f: Vec<usize> = out.split_whitespace().filter_map(|x| x.parse().ok()).collect();
+    ArsenalTotals { curated: f.first().copied().unwrap_or(0), total: f.get(1).copied().unwrap_or(0), other: f.get(2).copied().unwrap_or(0) }
+}
+
 #[tauri::command]
 fn arsenal_totals() -> ArsenalTotals {
     // `arx weapons totals` pings the live arsenal index and prints: curated<TAB>total<TAB>other
-    // (all zero if offline, so the UI just falls back to the curated categories).
-    let f: Vec<usize> = run("arx", &["weapons", "totals"]).split_whitespace().filter_map(|x| x.parse().ok()).collect();
-    ArsenalTotals { curated: f.first().copied().unwrap_or(0), total: f.get(1).copied().unwrap_or(0), other: f.get(2).copied().unwrap_or(0) }
+    // (all zero if offline, so the UI just falls back to the curated categories). Cached
+    // up to 6h by arx-core so a repeat call is instant.
+    parse_totals(&run("arx", &["weapons", "totals"]))
+}
+
+#[tauri::command]
+fn arsenal_totals_refresh() -> ArsenalTotals {
+    // bypasses the 6h cache — a tool added to the live repo just now shouldn't need a
+    // wait to show up when the user explicitly asks for a refresh.
+    parse_totals(&run("arx", &["weapons", "totals", "--force"]))
 }
 
 #[derive(Serialize)]
@@ -241,7 +253,7 @@ fn kernel_remove(flavor: String) -> Result<(), String> {
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
-            system_info, updates_count, updates_breakdown, kernels_list, kernels_manifest, weapons_categories, arsenal_totals, services_status,
+            system_info, updates_count, updates_breakdown, kernels_list, kernels_manifest, weapons_categories, arsenal_totals, arsenal_totals_refresh, services_status,
             weapons_install, weapons_remove, weapons_browse, system_update, sync_databases, kernel_install, kernel_remove,
             anond_status, anond_action,
             perf::perf_status, perf::perf_set_governor, perf::perf_set_epp, perf::perf_set_turbo, perf::perf_apply_profile,
