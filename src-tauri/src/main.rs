@@ -10,6 +10,7 @@ use serde::Serialize;
 mod perf;
 mod net;
 mod wallpaper;
+mod vm_tools;
 
 // ---------- small helpers ----------
 
@@ -235,7 +236,8 @@ fn main() {
             perf::perf_status, perf::perf_set_governor, perf::perf_set_epp, perf::perf_set_turbo, perf::perf_apply_profile,
             net::net_status, net::net_ports, net::net_disable_service, net::net_block_port,
             wallpaper::wallpapers_list, wallpaper::wallpaper_set, wallpaper::wallpaper_fetch,
-            wallpaper::wallpaper_cycle_status, wallpaper::wallpaper_cycle_set
+            wallpaper::wallpaper_cycle_status, wallpaper::wallpaper_cycle_set,
+            vm_tools::vm_status, vm_tools::vm_setup
         ])
         .run(tauri::generate_context!())
         .expect("error while running the ArxOS Control Center");

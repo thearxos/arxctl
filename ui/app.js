@@ -336,6 +336,27 @@ async function paintAnon() {
 }
 
 // ---- services ----
+// ---- VM tools ----
+loaders.vms = async () => {
+  const box = $('#vm-list');
+  let engines; try { engines = await invoke('vm_status'); } catch (e) { box.innerHTML = `<div class="soon">Could not check: ${e}</div>`; return; }
+  box.innerHTML = '';
+  engines.forEach(v => {
+    const c = el('div', 'card row vm-card');
+    const btnLabel = v.ready ? 'Reinstall / repair' : v.installed ? 'Finish setup' : 'Install';
+    c.innerHTML = `<span class="dot ${v.ready ? 'on' : v.installed ? '' : 'off'}"></span>
+      <div class="grow"><b>${v.name}</b><div class="dim" style="font-size:.8rem">${v.detail}</div></div>
+      <button class="btn-g sm">${btnLabel}</button>`;
+    c.querySelector('button').addEventListener('click', async (e) => {
+      e.target.disabled = true; e.target.textContent = 'Launching…';
+      try { await invoke('vm_setup', { target: v.id }); }
+      catch (err) { alert('Could not start setup: ' + err); }
+      finally { e.target.disabled = false; e.target.textContent = btnLabel; }
+    });
+    box.appendChild(c);
+  });
+};
+
 loaders.services = async () => {
   const svc = await invoke('services_status');
   const box = $('#svc-list'); box.innerHTML = '';
