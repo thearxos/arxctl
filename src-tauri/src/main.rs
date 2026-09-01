@@ -9,6 +9,7 @@ use serde::Serialize;
 
 mod perf;
 mod net;
+mod wallpaper;
 
 // ---------- small helpers ----------
 
@@ -232,7 +233,8 @@ fn main() {
             weapons_install, weapons_remove, weapons_browse, system_update, kernel_install, kernel_remove,
             anond_status, anond_action,
             perf::perf_status, perf::perf_set_governor, perf::perf_set_epp, perf::perf_set_turbo, perf::perf_apply_profile,
-            net::net_status, net::net_ports, net::net_disable_service, net::net_block_port
+            net::net_status, net::net_ports, net::net_disable_service, net::net_block_port,
+            wallpaper::wallpapers_list, wallpaper::wallpaper_set
         ])
         .run(tauri::generate_context!())
         .expect("error while running the ArxOS Control Center");

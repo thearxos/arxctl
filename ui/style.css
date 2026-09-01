@@ -287,3 +287,16 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opa
 ::-webkit-scrollbar{width:9px;height:9px}
 ::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:20px}
 ::-webkit-scrollbar-thumb:hover{background:rgba(232,112,42,.5)}
+
+/* ---- wallpaper gallery ---- */
+.wall-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:14px}
+.wall-tile{position:relative;border-radius:14px;overflow:hidden;aspect-ratio:16/10;cursor:pointer;
+  border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03) center/cover;transition:transform .15s,border-color .15s}
+.wall-tile:hover{transform:translateY(-2px);border-color:rgba(232,112,42,.45)}
+.wall-tile.active{border-color:var(--accent);box-shadow:0 0 0 2px rgba(232,112,42,.35)}
+.wall-tile .wname{position:absolute;left:0;right:0;bottom:0;padding:8px 10px 7px;font-size:.75rem;
+  background:linear-gradient(to top,rgba(0,0,0,.72),transparent);color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wall-tile .wcheck{position:absolute;top:8px;right:8px;width:20px;height:20px;border-radius:50%;
+  background:var(--accent);display:flex;align-items:center;justify-content:center;opacity:0}
+.wall-tile.active .wcheck{opacity:1}
+.wall-tile .wcheck svg{width:13px;height:13px;fill:#111}

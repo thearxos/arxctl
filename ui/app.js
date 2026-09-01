@@ -355,5 +355,26 @@ loaders.info = async () => {
   rows.forEach(([k, v]) => box.appendChild(el('div', 'card', `<span class="kk">${k}</span><span class="vv">${v || '—'}</span>`)));
 };
 
+// ---- wallpaper ----
+loaders.wallpaper = async () => {
+  const box = $('#wall-grid');
+  let list; try { list = await invoke('wallpapers_list'); } catch (e) { box.innerHTML = `<div class="soon">Could not scan: ${e}</div>`; return; }
+  if (!list.length) { box.innerHTML = '<div class="soon">No backgrounds found.</div>'; return; }
+  box.innerHTML = '';
+  list.forEach(w => {
+    const t = el('div', 'wall-tile');
+    t.style.backgroundImage = `url("${encodeURI('file://' + w.path)}")`;
+    t.title = w.name;
+    t.innerHTML = `<div class="wcheck"><svg viewBox="0 0 24 24"><path d="M9 16.2l-3.5-3.5L4 14.2 9 19l11-11-1.4-1.4z"/></svg></div><div class="wname">${w.name}</div>`;
+    t.addEventListener('click', async () => {
+      $$('.wall-tile', box).forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+      try { await invoke('wallpaper_set', { path: w.path }); }
+      catch (e) { t.classList.remove('active'); alert('Could not set wallpaper: ' + e); }
+    });
+    box.appendChild(t);
+  });
+};
+
 // first paint
 loaders.dashboard();
