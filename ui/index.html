@@ -49,7 +49,18 @@
 
     <section class="panel" id="p-update">
       <header class="phead"><h1 class="pf">Update</h1><p>The system, the kernel, and the ArxOS tools, in one pass.</p></header>
-      <button class="btn-p" id="btn-update">Update everything</button>
+      <div class="upd-grid" id="upd-grid">
+        <div class="card upd-stat"><span class="k">Official repos</span><b id="upd-pacman">—</b></div>
+        <div class="card upd-stat"><span class="k">AUR</span><b id="upd-aur">—</b></div>
+        <div class="card upd-stat"><span class="k">ArxOS tools</span><b id="upd-tools">—</b></div>
+        <div class="card upd-stat upd-total"><span class="k">Total pending</span><b id="upd-total">—</b></div>
+      </div>
+      <div class="upd-actions">
+        <button class="btn-p" id="btn-update">Update everything</button>
+        <button class="btn-g sm" id="btn-refresh-counts">Refresh count</button>
+        <button class="btn-g sm" id="btn-sync-db">Sync package databases only</button>
+      </div>
+      <p class="dim upd-live" id="upd-live"></p>
       <div class="handoff" id="update-note" hidden></div>
     </section>
 

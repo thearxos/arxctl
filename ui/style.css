@@ -328,6 +328,15 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opa
 .wall-tile .wmatch{position:absolute;top:9px;right:8px;color:var(--ok,#4ec37a);font-size:.7rem;text-shadow:0 0 6px rgba(78,195,122,.7)}
 .wall-tile.active .wmatch{right:32px}
 
+/* ---- Update panel ---- */
+.upd-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:20px}
+.upd-stat{display:flex;flex-direction:column;gap:6px}
+.upd-stat .k{color:var(--muted);font-size:.78rem}
+.upd-stat b{font-size:1.7rem;font-family:'JetBrains Mono'}
+.upd-stat.upd-total b{color:var(--accent-hi)}
+.upd-actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.upd-live{margin-top:12px;font-size:.78rem}
+
 /* ---- VM tools ---- */
 .vm-list{display:flex;flex-direction:column;gap:12px}
 .vm-card{padding:16px 20px}

@@ -57,6 +57,15 @@ fn updates_count() -> usize {
     run("arx", &["outdated"]).lines().filter(|l| !l.trim().is_empty()).count()
 }
 
+// The real per-source breakdown (official repos / AUR / ArxOS tool repos), computed
+// live by `arx updates-json` — this is what the Update panel shows, so the number
+// there is always current, never a stale notification cache.
+#[tauri::command]
+fn updates_breakdown() -> serde_json::Value {
+    let out = run("arx", &["updates-json"]);
+    serde_json::from_str(&out).unwrap_or(serde_json::json!({"pacman":0,"aur":0,"tools":0,"total":0}))
+}
+
 #[derive(Serialize)]
 struct Kernel { flavor: String, version: String, status: String, role: String, running: bool }
 
@@ -217,6 +226,8 @@ fn anond_action(action: String) -> Result<(), String> {
 #[tauri::command]
 fn system_update() -> Result<(), String> { launch_arx(&["upgrade"]) }
 #[tauri::command]
+fn sync_databases() -> Result<(), String> { launch_arx(&["refresh"]) } // re-syncs repo metadata only, no upgrade
+#[tauri::command]
 fn kernel_install(flavor: String) -> Result<(), String> {
     if !safe_token(&flavor) { return Err("invalid flavor".into()); }
     launch_arx(&["kernel", "install", &flavor])
@@ -230,8 +241,8 @@ fn kernel_remove(flavor: String) -> Result<(), String> {
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
-            system_info, updates_count, kernels_list, kernels_manifest, weapons_categories, arsenal_totals, services_status,
-            weapons_install, weapons_remove, weapons_browse, system_update, kernel_install, kernel_remove,
+            system_info, updates_count, updates_breakdown, kernels_list, kernels_manifest, weapons_categories, arsenal_totals, services_status,
+            weapons_install, weapons_remove, weapons_browse, system_update, sync_databases, kernel_install, kernel_remove,
             anond_status, anond_action,
             perf::perf_status, perf::perf_set_governor, perf::perf_set_epp, perf::perf_set_turbo, perf::perf_apply_profile,
             net::net_status, net::net_ports, net::net_disable_service, net::net_block_port,

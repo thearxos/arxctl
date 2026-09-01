@@ -43,8 +43,33 @@ loaders.dashboard = async () => {
 };
 
 // ---- update ----
+// A real per-source count (official repos / AUR / ArxOS tools), refreshed on load, on
+// demand, and automatically while this panel stays open — so it never goes stale after
+// an update finishes in its handoff terminal without the user having to guess and reopen.
+let updPollTimer = null;
+async function paintUpdateCounts() {
+  let b; try { b = await invoke('updates_breakdown'); } catch { return; }
+  $('#upd-pacman').textContent = b.pacman ?? 0;
+  $('#upd-aur').textContent = b.aur ?? 0;
+  $('#upd-tools').textContent = b.tools ?? 0;
+  $('#upd-total').textContent = b.total ?? 0;
+  $('#upd-live').textContent = 'Last checked ' + new Date().toLocaleTimeString();
+}
+loaders.update = () => {
+  paintUpdateCounts();
+  if (updPollTimer) clearInterval(updPollTimer);
+  updPollTimer = setInterval(paintUpdateCounts, 15000); // live while this panel is open
+};
+// stop polling when the user leaves the panel (the nav handler swaps .active classes)
+$$('.nav-item').forEach(b => b.addEventListener('click', () => {
+  if (b.dataset.panel !== 'update' && updPollTimer) { clearInterval(updPollTimer); updPollTimer = null; }
+}));
+
 $('#btn-update').addEventListener('click', () =>
   handoff($('#update-note'), 'system_update', {}, 'The update'));
+$('#btn-sync-db').addEventListener('click', () =>
+  handoff($('#update-note'), 'sync_databases', {}, 'Syncing package databases'));
+$('#btn-refresh-counts').addEventListener('click', paintUpdateCounts);
 
 // ---- weapons (the live arsenal installer) ----
 let weapSel = null;
