@@ -27,6 +27,9 @@ pub struct Session {
     /// the i2p overlay was started this session (so `down` stops i2pd too).
     #[serde(default)]
     pub i2p: bool,
+    /// original transient hostname, restored on down (only set when the hostname was spoofed).
+    #[serde(default)]
+    pub hostname_backup: Option<String>,
 }
 
 impl Session {
@@ -35,6 +38,7 @@ impl Session {
             state: State::Down, tor_uid,
             since: now(),
             resolv_backup: None, mac_backup: Vec::new(), swap_was_on: false, i2p: false,
+            hostname_backup: None,
         }
     }
     pub fn save(&self) -> Result<()> {

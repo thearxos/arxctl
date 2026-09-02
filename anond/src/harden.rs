@@ -6,6 +6,10 @@ use crate::state::Session;
 use crate::util::{out, run};
 use anyhow::Result;
 
+/// A generic, high-anonymity-set hostname used while anonymised — the default Debian/many-distro
+/// hostname, so the box blends in rather than announcing itself as an ArxOS machine on the LAN.
+const GENERIC_HOSTNAME: &str = "localhost";
+
 pub fn apply(sess: &mut Session, mac: bool) -> Result<()> {
     // swap off so no session memory (circuits, keys) can be paged to disk.
     sess.swap_was_on = !out("swapon", &["--show", "--noheadings"]).is_empty();
@@ -14,6 +18,19 @@ pub fn apply(sess: &mut Session, mac: bool) -> Result<()> {
     // modest anti-fingerprinting: drop TCP timestamps (uptime leak), ignore ICMP broadcasts.
     let _ = run("sysctl", &["-qw", "net.ipv4.tcp_timestamps=0"]);
     let _ = run("sysctl", &["-qw", "net.ipv4.icmp_echo_ignore_broadcasts=1"]);
+
+    // HOSTNAME: the machine's hostname leaks to the LAN/router (and the ISP's DHCP logs) on
+    // every lease. A distinctive name like "arxos" tags the user as an ArxOS box before Tor is
+    // even in the picture. Spoof the TRANSIENT hostname to a generic value for the session, and
+    // restore the original on `down`. Transient-only: /etc/hostname on disk is untouched, so a
+    // reboot restores it even if `down` never ran. Default-on (unlike --mac, this costs nothing
+    // and cannot bounce a link).
+    let orig_host = out("hostname", &[]).trim().to_string();
+    if !orig_host.is_empty() && orig_host != GENERIC_HOSTNAME {
+        if run("hostname", &[GENERIC_HOSTNAME]).is_ok() {
+            sess.hostname_backup = Some(orig_host);
+        }
+    }
 
     if mac {
         // randomise MAC on each non-loopback, non-virtual link. Opt-in: this bounces the NIC.
@@ -30,6 +47,11 @@ pub fn apply(sess: &mut Session, mac: bool) -> Result<()> {
 }
 
 pub fn restore(sess: &Session) -> Result<()> {
+    // REVERSIBILITY INVARIANT: `down` must return the system to its pre-session state. Every
+    // spoof recorded in the session is undone here — hostname, MAC, sysctls, swap.
+    if let Some(ref orig) = sess.hostname_backup {
+        let _ = run("hostname", &[orig]);
+    }
     for (ifn, mac) in &sess.mac_backup {
         let _ = run("ip", &["link", "set", ifn, "down"]);
         let _ = run("ip", &["link", "set", ifn, "address", mac]);
