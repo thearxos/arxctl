@@ -30,6 +30,9 @@ pub struct Session {
     /// original transient hostname, restored on down (only set when the hostname was spoofed).
     #[serde(default)]
     pub hostname_backup: Option<String>,
+    /// a random machine-id was bind-mounted over /etc/machine-id this session (unmount on down).
+    #[serde(default)]
+    pub machine_id_spoofed: bool,
 }
 
 impl Session {
@@ -38,7 +41,7 @@ impl Session {
             state: State::Down, tor_uid,
             since: now(),
             resolv_backup: None, mac_backup: Vec::new(), swap_was_on: false, i2p: false,
-            hostname_backup: None,
+            hostname_backup: None, machine_id_spoofed: false,
         }
     }
     pub fn save(&self) -> Result<()> {

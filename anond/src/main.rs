@@ -182,8 +182,13 @@ fn down() -> Result<()> {
     if let Some(ref s) = sess { let _ = harden::restore(s); }
     killswitch::down()?; // last
     state::clear()?;
+    // RAM hygiene on stop (anonsurf-style): flush filesystem buffers, then drop the page cache,
+    // dentries, and inodes so cached session data (fetched pages, resolved names, tmp reads) does
+    // not linger in RAM after the anonymous session ends. Best-effort; needs the kernel knob.
+    let _ = util::run("sync", &[]);
+    let _ = std::fs::write("/proc/sys/vm/drop_caches", "3");
     write_pub("Down", "", false);
-    println!("anond DOWN — Tor stopped, DNS/host restored, kill-switch removed last.");
+    println!("anond DOWN — Tor stopped, DNS/host restored, kill-switch removed last; RAM caches flushed.");
     Ok(())
 }
 

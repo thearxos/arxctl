@@ -32,6 +32,34 @@ pub fn apply(sess: &mut Session, mac: bool) -> Result<()> {
         }
     }
 
+    // MACHINE-ID: /etc/machine-id is a globally-unique, stable identifier an app can read to
+    // link all your "anonymous" sessions to one machine across Tor circuits (found in a leak
+    // test). Bind-mount a RANDOM id over it for the session so apps that read it afterward see
+    // a fresh value; `down` unmounts to restore the real one. Bind-mount (not a file write)
+    // because: it never persists across a reboot (fully transient/reversible by construction),
+    // and it does not touch the real on-disk file that systemd already loaded at boot — so
+    // running services keep the id they started with while new app reads get the random one.
+    // Skip if a random id is already bind-mounted (idempotent, and avoids stacking mounts).
+    if !sess.machine_id_spoofed && out("mount", &[]).lines().all(|l| !l.contains("/etc/machine-id")) {
+        // REAL entropy from /dev/urandom — a machine-id derived from the clock would be
+        // predictable/correlatable (and near-identical across rapid sessions), which is itself a
+        // weakness. 16 random bytes -> 32 lowercase hex, the machine-id format.
+        let rand_id: String = {
+            use std::io::Read;
+            let mut buf = [0u8; 16];
+            std::fs::File::open("/dev/urandom").and_then(|mut f| f.read_exact(&mut buf))
+                .map(|_| buf.iter().map(|x| format!("{x:02x}")).collect())
+                .unwrap_or_default()
+        };
+        let tmp = "/run/anond/machine-id";
+        let _ = crate::util::ensure_dirs();
+        if rand_id.len() == 32
+            && std::fs::write(tmp, format!("{rand_id}\n")).is_ok()
+            && run("mount", &["--bind", tmp, "/etc/machine-id"]).is_ok() {
+            sess.machine_id_spoofed = true;
+        }
+    }
+
     if mac {
         // randomise MAC on each non-loopback, non-virtual link. Opt-in: this bounces the NIC.
         for ifn in phys_ifaces() {
@@ -48,7 +76,11 @@ pub fn apply(sess: &mut Session, mac: bool) -> Result<()> {
 
 pub fn restore(sess: &Session) -> Result<()> {
     // REVERSIBILITY INVARIANT: `down` must return the system to its pre-session state. Every
-    // spoof recorded in the session is undone here — hostname, MAC, sysctls, swap.
+    // spoof recorded in the session is undone here — hostname, MAC, machine-id, sysctls, swap.
+    if sess.machine_id_spoofed {
+        // unmount the random machine-id bind mount; the real /etc/machine-id is exposed again.
+        let _ = run("umount", &["/etc/machine-id"]);
+    }
     if let Some(ref orig) = sess.hostname_backup {
         let _ = run("hostname", &[orig]);
     }
