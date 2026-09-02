@@ -347,12 +347,30 @@ fn browser_harden() -> Result<(), String> {
     spawn_terminal(&wrap_close("sudo /usr/lib/arxos/harden-browsers.sh"))
 }
 
-// Which browsers are installed and therefore covered by the patch action.
+// Which browsers are actually installed on this machine, so the panel offers/reports exactly
+// the browsers present — never claims to patch one that is absent, never misses one that is
+// there. Detection is robust: the real launcher binary anywhere on PATH, OR any known install
+// root (a browser installed via a package, /opt, or a lib dir is still found). Each browser
+// lists several aliases/roots because distros and managers place them differently.
 #[tauri::command]
 fn browser_status() -> Vec<String> {
+    // (display name, [binary names to look up on PATH], [absolute roots to probe])
+    let browsers: &[(&str, &[&str], &[&str])] = &[
+        ("Firefox",   &["firefox", "firefox-esr", "firefox-bin"], &["/usr/lib/firefox", "/usr/lib64/firefox", "/usr/share/firefox"]),
+        ("Waterfox",  &["waterfox", "waterfox-bin"],              &["/opt/waterfox", "/usr/lib/waterfox"]),
+        ("Brave",     &["brave", "brave-browser", "brave-bin"],  &["/etc/brave", "/opt/brave.com", "/usr/lib/brave-browser", "/usr/lib/brave-bin"]),
+        ("LibreWolf", &["librewolf"],                            &["/usr/lib/librewolf", "/opt/librewolf"]),
+        ("Mullvad Browser", &["mullvad-browser"],                &["/opt/mullvad-browser", "/usr/lib/mullvad-browser"]),
+        ("Chromium",  &["chromium", "chromium-browser"],         &["/usr/lib/chromium", "/etc/chromium"]),
+        ("Tor Browser", &["torbrowser-launcher", "tor-browser"], &["/opt/tor-browser", "/usr/lib/torbrowser"]),
+    ];
+    let on_path = |bin: &str| std::env::var("PATH").unwrap_or_default()
+        .split(':').any(|d| std::path::Path::new(d).join(bin).exists());
     let mut found = Vec::new();
-    for (name, probe) in [("Firefox", "/usr/lib/firefox"), ("Waterfox", "/opt/waterfox"), ("Brave", "/etc/brave")] {
-        if std::path::Path::new(probe).exists() { found.push(name.to_string()); }
+    for (name, bins, roots) in browsers {
+        let present = bins.iter().any(|b| on_path(b))
+            || roots.iter().any(|r| std::path::Path::new(r).exists());
+        if present { found.push(name.to_string()); }
     }
     found
 }
