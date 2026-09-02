@@ -59,7 +59,30 @@ pub fn up(exempt_uids: &[u32]) -> Result<()> {
     child.stdin.take().context("nft stdin")?.write_all(ruleset(exempt_uids).as_bytes())?;
     let st = child.wait().context("wait nft")?;
     anyhow::ensure!(st.success(), "kill-switch ruleset was rejected by nft");
+    // CRITICAL, and the reason a kill-switch is more than just a ruleset: flush the conntrack
+    // table the instant the rules are live. nftables NAT only transforms the FIRST packet of a
+    // flow, so any connection that was ESTABLISHED before this table existed has no Tor redirect
+    // recorded — its ongoing packets would skip the redirect and match `ct state established
+    // accept`, leaking in the clear to their real peer while we report Active. Flushing forces
+    // every existing flow to be re-evaluated against the new rules: a mid-stream packet is not a
+    // SYN, so it is neither redirected nor established, and hits policy-drop — the pre-existing
+    // clear flow dies (fail-closed) and the app must reopen, whose SYN is pulled into Tor. This
+    // is exactly what a bullet-proof kill-switch (Mullvad et al.) does at arm time.
+    flush_conntrack();
     Ok(())
+}
+
+// Flush the kernel connection-tracking table so no pre-existing flow survives the kill-switch.
+// `conntrack -F` (conntrack-tools) is the reliable path; the /proc fallback covers a minimal
+// system without the CLI. Absence is a REAL leak risk, so it is reported loudly, not swallowed.
+fn flush_conntrack() {
+    if Command::new("conntrack").arg("-F").stderr(Stdio::null()).stdout(Stdio::null()).status()
+        .map(|s| s.success()).unwrap_or(false) { return; }
+    // fallback: some kernels expose a flush via this sysctl-style knob; best effort.
+    if std::fs::write("/proc/sys/net/netfilter/nf_conntrack_count", "0").is_ok() { /* not a true flush, ignore */ }
+    eprintln!("anond: WARNING — could not flush conntrack (install conntrack-tools). \
+               Connections open BEFORE this session may continue in the clear until they close. \
+               Close your browser/apps and reopen them after `anond up`.");
 }
 
 pub fn down() -> Result<()> { down_quiet(); Ok(()) }

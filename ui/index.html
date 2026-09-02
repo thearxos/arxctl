@@ -16,9 +16,9 @@
     <div class="brand"><span class="mark">/\</span><span class="wordmark">ARXOS</span><span class="sub">control center</span></div>
     <nav class="nav">
       <button class="nav-item active" data-panel="dashboard"><svg viewBox="0 0 24 24"><path d="M4 13h6V4H4v9zm0 7h6v-5H4v5zm10 0h6V11h-6v9zm0-16v5h6V4h-6z"/></svg>Dashboard</button>
-      <button class="nav-item" data-panel="update"><svg viewBox="0 0 24 24"><path d="M12 4V1L8 5l4 4V6a6 6 0 11-6 6H4a8 8 0 108-8z"/></svg>Update</button>
+      <button class="nav-item" data-panel="update"><svg viewBox="0 0 24 24"><path d="M12 4V1L8 5l4 4V6a6 6 0 11-6 6H4a8 8 0 108-8z"/></svg>Update<span class="nav-badge" id="badge-update" hidden></span></button>
       <button class="nav-item" data-panel="weapons"><svg viewBox="0 0 24 24"><path d="M6.9 3.5l13.6 13.6-1.4 1.4-2.1-.7-1.4 1.4-3.5-3.5 1.4-1.4-3.5-3.5-1.4 1.4L3.5 8.6 4.9 7.2l-.7-2.1L6.9 3.5z"/></svg>Weapons</button>
-      <button class="nav-item" data-panel="kernels"><svg viewBox="0 0 24 24"><path d="M9 3v2H7v2H5v2H3v6h2v2h2v2h2v2h6v-2h2v-2h2v-2h2V9h-2V7h-2V5h-2V3H9zm2 6h2v6h-2V9z"/></svg>Kernels</button>
+      <button class="nav-item" data-panel="kernels"><svg viewBox="0 0 24 24"><path d="M9 3v2H7v2H5v2H3v6h2v2h2v2h2v2h6v-2h2v-2h2v-2h2V9h-2V7h-2V5h-2V3H9zm2 6h2v6h-2V9z"/></svg>Kernels<span class="nav-dot" id="dot-kernels" hidden></span></button>
       <button class="nav-item" data-panel="performance"><svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 00-9 14.5l1.8-1A8 8 0 1120 12h2A10 10 0 0012 2zm0 6l-3 6h6l-3-6z"/></svg>Performance</button>
       <button class="nav-item" data-panel="network"><svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm6.9 6h-2.6a15.7 15.7 0 00-1.4-3.6A8 8 0 0118.9 8zM12 4c.8 1.1 1.5 2.5 1.9 4h-3.8c.4-1.5 1.1-2.9 1.9-4zM4.3 14a8 8 0 010-4h3a17 17 0 000 4h-3zm.8 2h2.6c.3 1.3.8 2.5 1.4 3.6A8 8 0 015.1 16zm2.6-8H5.1a8 8 0 014-3.6C8.5 5.5 8 6.7 7.7 8zM12 20c-.8-1.1-1.5-2.5-1.9-4h3.8c-.4 1.5-1.1 2.9-1.9 4zm2.3-6H9.7a15 15 0 010-4h4.6a15 15 0 010 4zm.4 5.6c.6-1.1 1.1-2.3 1.4-3.6h2.6a8 8 0 01-4 3.6zM16.7 14a17 17 0 000-4h3a8 8 0 010 4h-3z"/></svg>Network</button>
       <button class="nav-item" data-panel="wallpaper"><svg viewBox="0 0 24 24"><path d="M4 4h16v16H4V4zm2 2v9.6l4-3.6 3 2.7 5-4.7V6H6zm0 12h12v-2.1l-4.9-4.6-3.1 2.8-4-3.6V18zM8.5 9a1.5 1.5 0 100-3 1.5 1.5 0 000 3z"/></svg>Wallpaper</button>
@@ -173,7 +173,10 @@
         </div>
         <div class="grow"></div>
         <div class="anon-actions">
-          <label class="i2p-opt"><input type="checkbox" id="anon-i2p"> i2p overlay</label>
+          <button class="i2p-toggle" id="anon-i2p" role="switch" aria-checked="false" title="Add the i2p overlay alongside Tor">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 3.2l5.5 3.2v6.2L12 17.8 6.5 14.6V8.4L12 5.2zm0 2.6L8.8 9.6v3.6L12 15l3.2-1.8V9.6L12 7.8z"/></svg>
+            <span>i2p</span>
+          </button>
           <button class="btn-p" id="anon-up">Go anonymous</button>
           <button class="btn-g" id="anon-down">Stop</button>
         </div>
@@ -181,6 +184,20 @@
       <div class="anon-row">
         <button class="btn-g" id="anon-verify">Verify (leak test)</button>
         <button class="btn-g" id="anon-newid">New identity</button>
+      </div>
+
+      <div class="anon-live" id="anon-live">
+        <div class="al-grid">
+          <div class="al-cell"><span class="k">Tor</span><b id="al-tor">—</b></div>
+          <div class="al-cell"><span class="k">Kill switch</span><b id="al-ks">—</b></div>
+          <div class="al-cell"><span class="k">DNS</span><b id="al-dns">—</b></div>
+          <div class="al-cell"><span class="k">i2p</span><b id="al-i2p">—</b></div>
+          <div class="al-cell wide"><span class="k">Exit IP</span><b id="al-ip" class="mono">—</b></div>
+          <div class="al-cell wide"><span class="k">Exit node location</span><b id="al-loc">—</b></div>
+          <div class="al-cell wide"><span class="k">Interface / MAC</span><b id="al-mac" class="mono">—</b></div>
+          <div class="al-cell wide"><span class="k">Resolver in effect</span><b id="al-res" class="mono">—</b></div>
+        </div>
+        <div class="al-console" id="al-console"><div class="dim">Output from anond appears here, live, as each step runs.</div></div>
       </div>
       <div class="anon-facts">
         <div class="card"><b>Fail-closed</b><p class="dim">The kill-switch is armed before Tor and removed last. If any layer is unhealthy, traffic is blocked, never leaked.</p></div>

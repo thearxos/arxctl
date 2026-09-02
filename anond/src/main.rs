@@ -15,13 +15,42 @@ mod verify;
 use anyhow::{bail, Result};
 use state::State;
 
-// A world-readable snapshot (no secrets — just the state and exit IP) so the GUI, running as
-// the desktop user, can show status without reading the root-only session file.
-fn write_pub(state: &str, exit_ip: &str) {
+// A world-readable snapshot (no secrets — state, exit IP, and each layer's live state) so the
+// GUI, running as the desktop user, can show the FULL picture without reading the root-only
+// session file and without shelling out to a terminal for it.
+fn write_pub(state: &str, exit_ip: &str, leaking: bool) {
     let _ = util::ensure_dirs();
     let p = format!("{}/pub.json", util::RUN_DIR);
-    if std::fs::write(&p, format!("{{\"state\":\"{state}\",\"exit_ip\":\"{exit_ip}\"}}")).is_ok() {
+    let json = format!(
+        "{{\"state\":\"{state}\",\"exit_ip\":\"{exit_ip}\",\"tor\":\"{}\",\"killswitch\":\"{}\",\"dns\":\"{}\",\"i2p\":\"{}\",\"leaking\":{leaking}}}",
+        if tor::running() { "running" } else { "stopped" },
+        if killswitch::is_up() { "armed" } else { "down" },
+        if dns::is_pinned() { "pinned" } else { "open" },
+        if i2p::running() { "running" } else { "off" },
+    );
+    if std::fs::write(&p, json).is_ok() {
         let _ = std::process::Command::new("chmod").args(["644", &p]).status();
+    }
+}
+
+/// The reconciled truth about the session, NOT the state persisted on disk. This exists
+/// because the persisted `State::Active` is only a *claim*: if Tor later dies (crash, OOM,
+/// kill, suspend/resume) the on-disk state still says Active, and reporting that verbatim is
+/// the one failure an anonymity tool must never have — telling the user they are protected
+/// when they are not. Everything user- or GUI-facing goes through here so a dead session can
+/// never masquerade as Active.
+struct Health { effective: State, leaking: bool }
+fn health() -> Health {
+    let persisted = state::load().map(|s| s.state).unwrap_or(State::Down);
+    // A claimed-Active session whose Tor process is gone is NOT active. What it actually is
+    // depends on the kill-switch: if the switch still holds, traffic is BLOCKED (safe but not
+    // anonymous) = Locked; if the switch is also down, traffic egresses in the clear = the
+    // dangerous leak, reported as Down + leaking so nothing shows a false green.
+    if persisted == State::Active && !tor::running() {
+        let ks = killswitch::is_up();
+        Health { effective: if ks { State::Locked } else { State::Down }, leaking: !ks }
+    } else {
+        Health { effective: persisted, leaking: false }
     }
 }
 
@@ -43,7 +72,11 @@ fn main() {
 
 fn up(args: &[String]) -> Result<()> {
     util::require_root()?;
-    if state::load().map(|s| s.state == State::Active).unwrap_or(false) {
+    // Use the RECONCILED state, not the raw persisted claim: a session that says Active on disk
+    // but whose Tor has died must NOT short-circuit here as "already active" — that would leave
+    // the user unprotected while telling them everything is fine. Only a genuinely-live Active
+    // session skips re-establishment.
+    if health().effective == State::Active {
         println!("anond is already active"); return Ok(());
     }
     let tor_uid = util::uid_of("tor")?;
@@ -93,17 +126,17 @@ fn up(args: &[String]) -> Result<()> {
     match result {
         Ok(v) if v.active() => {
             sess.state = State::Active; sess.save()?;
-            write_pub("Active", &v.exit_ip);
+            write_pub("Active", &v.exit_ip, false);
             println!("\nanond ACTIVE — you exit via Tor at {}. DNS pinned, IPv6 blocked, kill-switch armed.", v.exit_ip);
             Ok(())
         }
         Ok(_) => {
             // probes failed: STAY LOCKED (blocked), do not leak. `anond down` to release.
-            sess.state = State::Locked; sess.save()?; write_pub("Locked", "");
+            sess.state = State::Locked; sess.save()?; write_pub("Locked", "", false);
             bail!("verification failed — staying LOCKED (all traffic blocked). Run `anond verify` for detail, or `anond down` to release.")
         }
         Err(e) => {
-            sess.state = State::Locked; sess.save()?; write_pub("Locked", "");
+            sess.state = State::Locked; sess.save()?; write_pub("Locked", "", false);
             bail!("bring-up failed ({e:#}) — staying LOCKED (all traffic blocked). Run `anond down` to release.")
         }
     }
@@ -119,24 +152,35 @@ fn down() -> Result<()> {
     if let Some(ref s) = sess { let _ = harden::restore(s); }
     killswitch::down()?; // last
     state::clear()?;
-    write_pub("Down", "");
+    write_pub("Down", "", false);
     println!("anond DOWN — Tor stopped, DNS/host restored, kill-switch removed last.");
     Ok(())
 }
 
 fn status() -> Result<()> {
-    match state::load() {
-        Some(s) => {
-            println!("state\t{:?}", s.state);
-            println!("tor\t{}", if tor::running() { "running" } else { "stopped" });
-            println!("killswitch\t{}", if killswitch::is_up() { "armed" } else { "down" });
-            println!("dns\t{}", if dns::is_pinned() { "pinned" } else { "open" });
-            println!("i2p\t{}", if i2p::running() { "running" } else { "off" });
-            if s.state == State::Active {
-                if let Ok(ip) = verify::exit_ip() { println!("exit_ip\t{ip}"); }
-            }
-        }
-        None => println!("state\tDown"),
+    let h = health();
+    let claimed = state::load().map(|s| s.state);
+    // Report the RECONCILED state, never the raw persisted claim. If reconciliation downgraded
+    // a claimed-Active session, say so out loud rather than silently — the user needs to know
+    // their protection dropped, not just see a quietly different word.
+    println!("state\t{:?}", h.effective);
+    if claimed == Some(State::Active) && h.effective != State::Active {
+        println!("\t↳ was Active, but Tor is not running — anonymity has DROPPED.");
     }
+    println!("tor\t{}", if tor::running() { "running" } else { "stopped" });
+    println!("killswitch\t{}", if killswitch::is_up() { "armed" } else { "down" });
+    println!("dns\t{}", if dns::is_pinned() { "pinned" } else { "open" });
+    println!("i2p\t{}", if i2p::running() { "running" } else { "off" });
+    if h.leaking {
+        println!("\n*** LEAK: this session was Active, Tor is DEAD, and the kill-switch is DOWN.");
+        println!("*** Traffic is egressing in the clear. Run `anond down` then `anond up` to restore,");
+        println!("*** or `anond down` to stop and clean up.");
+    }
+    let mut ip = String::new();
+    if h.effective == State::Active {
+        if let Ok(v) = verify::exit_ip() { println!("exit_ip\t{v}"); ip = v; }
+    }
+    // refresh the public snapshot with the RECONCILED state so the GUI never shows a false green
+    write_pub(&format!("{:?}", h.effective), &ip, h.leaking);
     Ok(())
 }

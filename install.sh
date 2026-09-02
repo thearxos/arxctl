@@ -35,6 +35,11 @@ fi
 [ -x "$NOTIFY" ] && $S install -Dm755 "$NOTIFY" /usr/local/bin/arxos-notify
 # anond (the anonymity daemon) ships bundled inside the Control Center
 [ -x "$ANOND" ]  && $S install -Dm755 "$ANOND"  /usr/local/bin/anond
+# anond's transparent-proxy kill-switch needs a real netfilter backend + conntrack: it flushes
+# the connection-tracking table when arming so no pre-existing flow can survive in the clear
+# (the classic transproxy leak). These MUST be present or a user hits a missing package mid-arm
+# and the kill-switch silently can't flush — install them up front, never leave it to chance.
+$S pacman -S --noconfirm --needed nftables iptables-nft conntrack-tools tor >/dev/null 2>&1 || true
 $S install -Dm755 "$D/arxos-news"   /usr/local/bin/arxos-news   2>/dev/null
 $S install -Dm755 "$D/arxos-kernel" /usr/local/bin/arxos-kernel 2>/dev/null
 

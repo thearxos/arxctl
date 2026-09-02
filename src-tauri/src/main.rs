@@ -218,15 +218,58 @@ fn weapons_browse() -> Result<(), String> { launch_arx(&["weapons", "list-all"])
 // privileged actions (up/down/verify/new-identity) hand off to a terminal running `sudo anond`
 // so the user watches the fail-closed bring-up and authenticates there. We never hold root.
 #[derive(Serialize)]
-struct AnondStatus { state: String, exit_ip: String }
+struct AnondStatus {
+    state: String,
+    exit_ip: String,
+    // each layer, read from anond's world-readable snapshot (no root, no terminal needed)
+    tor: String,
+    killswitch: String,
+    dns: String,
+    i2p: String,
+    // local identity, so the panel can show what the network actually sees
+    mac: String,
+    iface: String,
+    resolver: String,
+}
+
+// The MAC and interface anond's spoofing acts on: the one carrying the default route.
+fn primary_iface() -> (String, String) {
+    let route = run("ip", &["-o", "route", "get", "1.1.1.1"]);
+    let iface = route.split_whitespace().skip_while(|t| *t != "dev").nth(1).unwrap_or("").to_string();
+    if iface.is_empty() { return (String::new(), String::new()); }
+    let mac = read(&format!("/sys/class/net/{iface}/address")).trim().to_string();
+    (iface, mac)
+}
 
 #[tauri::command]
 fn anond_status() -> AnondStatus {
     let v: serde_json::Value = serde_json::from_str(&read("/run/anond/pub.json")).unwrap_or(serde_json::Value::Null);
+    let s = |k: &str, d: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or(d).to_string();
+    let (iface, mac) = primary_iface();
+    // the first nameserver actually in effect (anond pins this to Tor when it is up)
+    let resolver = read("/etc/resolv.conf").lines()
+        .find_map(|l| l.strip_prefix("nameserver ").map(|v| v.trim().to_string()))
+        .unwrap_or_default();
     AnondStatus {
-        state: v.get("state").and_then(|x| x.as_str()).unwrap_or("Down").to_string(),
-        exit_ip: v.get("exit_ip").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+        state: s("state", "Down"), exit_ip: s("exit_ip", ""),
+        tor: s("tor", "stopped"), killswitch: s("killswitch", "down"),
+        dns: s("dns", "open"), i2p: s("i2p", "off"),
+        mac, iface, resolver,
     }
+}
+
+// Where the exit node actually is. Only meaningful while anond is up, and the lookup itself
+// rides the same Tor-routed path as everything else, so it does not deanonymise the request.
+#[tauri::command]
+fn anond_exit_location(ip: String) -> String {
+    if ip.is_empty() || !ip.bytes().all(|b| b.is_ascii_hexdigit() || b == b'.' || b == b':') { return String::new(); }
+    let out = run("curl", &["-s", "--max-time", "8", &format!("https://ipinfo.io/{ip}/json")]);
+    let v: serde_json::Value = serde_json::from_str(&out).unwrap_or(serde_json::Value::Null);
+    let g = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
+    let (city, region, country, org) = (g("city"), g("region"), g("country"), g("org"));
+    let place: Vec<String> = [city, region, country].into_iter().filter(|s| !s.is_empty()).collect();
+    if place.is_empty() && org.is_empty() { return String::new(); }
+    if org.is_empty() { place.join(", ") } else { format!("{} · {}", place.join(", "), org) }
 }
 
 // run `sudo <bin> <args>` in the OS terminal; sudo authenticates there and the window closes
@@ -242,6 +285,38 @@ fn anond_action(action: String) -> Result<(), String> {
         "up-i2p" => launch_priv("anond", &["up", "--i2p"]), // Tor + the i2p overlay
         _ => Err("invalid action".into()),
     }
+}
+
+// Run an anond action and STREAM its output back into the Privacy panel line by line, so
+// everything the external terminal would print (each fail-closed step, the leak test, the new
+// exit IP) is visible in the app itself. pkexec is used rather than a terminal handoff because
+// there is no terminal here to authenticate in.
+#[tauri::command]
+async fn anond_action_streamed(app: tauri::AppHandle, action: String) -> Result<i32, String> {
+    use tauri::Emitter;
+    // owned, because these move into the worker thread below
+    let args: Vec<String> = match action.as_str() {
+        "up" | "down" | "verify" | "new-identity" => vec![action.clone()],
+        "up-i2p" => vec!["up".into(), "--i2p".into()],
+        _ => return Err("invalid action".into()),
+    };
+    let (tx, rx) = std::sync::mpsc::channel::<String>();
+    let handle = std::thread::spawn(move || -> i32 {
+        use std::io::{BufRead, BufReader};
+        use std::process::Stdio;
+        let mut cmd = std::process::Command::new("pkexec");
+        cmd.arg("anond").args(&args).stdout(Stdio::piped()).stderr(Stdio::piped());
+        let mut child = match cmd.spawn() { Ok(c) => c, Err(e) => { let _ = tx.send(format!("could not start anond: {e}")); return -1; } };
+        if let Some(out) = child.stdout.take() {
+            for line in BufReader::new(out).lines().map_while(Result::ok) { let _ = tx.send(line); }
+        }
+        if let Some(err) = child.stderr.take() {
+            for line in BufReader::new(err).lines().map_while(Result::ok) { let _ = tx.send(line); }
+        }
+        child.wait().ok().and_then(|s| s.code()).unwrap_or(-1)
+    });
+    for line in rx { let _ = app.emit("anond-line", line); }
+    handle.join().map_err(|_| "anond worker panicked".to_string())
 }
 // Re-apply the ArxOS browser hardening (Firefox, Waterfox, Brave): WebRTC leak protection,
 // browser DoH off so DNS defers to anond's Tor pin, telemetry and tracking closed.
@@ -280,7 +355,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             system_info, updates_count, updates_breakdown, kernels_list, kernels_manifest, weapons_categories, arsenal_totals, arsenal_totals_refresh, weapons_menu_rebuild, browser_harden, browser_status, services_status,
             weapons_install, weapons_remove, weapons_browse, system_update, sync_databases, kernel_install, kernel_remove,
-            anond_status, anond_action,
+            anond_status, anond_action, anond_action_streamed, anond_exit_location,
             perf::perf_status, perf::perf_set_governor, perf::perf_set_epp, perf::perf_set_turbo, perf::perf_apply_profile,
             net::net_status, net::net_ports, net::net_disable_service, net::net_block_port,
             wallpaper::wallpapers_list, wallpaper::wallpaper_set, wallpaper::wallpaper_fetch,

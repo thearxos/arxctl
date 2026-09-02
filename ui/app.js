@@ -368,6 +368,7 @@ async function paintBrowserHardening() {
   }
   $('#btn-browser-harden').disabled = !found.length;
 }
+let lastExitIp = '';
 async function paintAnon() {
   let s; try { s = await invoke('anond_status'); } catch { return; }
   const u = ANON_UI[s.state] || ANON_UI.Down;
@@ -376,13 +377,66 @@ async function paintAnon() {
   $('#anon-exit').textContent = s.state === 'Active' && s.exit_ip ? 'exit IP ' + s.exit_ip : '';
   $('#anon-up').disabled = s.state === 'Active';
   $('#anon-down').disabled = s.state === 'Down';
+
+  // the live layer-by-layer picture, straight from anond's own snapshot
+  const cell = (id, val, good) => {
+    const el = $(id); if (!el) return;
+    el.textContent = val;
+    el.className = (el.classList.contains('mono') ? 'mono ' : '') + (good ? 'on' : 'off');
+  };
+  cell('#al-tor', s.tor, s.tor === 'running');
+  cell('#al-ks', s.killswitch, s.killswitch === 'armed');
+  cell('#al-dns', s.dns, s.dns === 'pinned');
+  cell('#al-i2p', s.i2p, s.i2p === 'running');
+  cell('#al-ip', s.exit_ip || '—', !!s.exit_ip);
+  cell('#al-mac', s.iface ? `${s.iface} · ${s.mac}` : '—', !!s.iface);
+  cell('#al-res', s.resolver || '—', s.dns === 'pinned');
+
+  // exit-node location: only look it up when the IP actually changes, so a 2s status
+  // refresh does not turn into a lookup every tick
+  if (s.exit_ip && s.exit_ip !== lastExitIp) {
+    lastExitIp = s.exit_ip;
+    $('#al-loc').textContent = 'locating…';
+    invoke('anond_exit_location', { ip: s.exit_ip })
+      .then(loc => { $('#al-loc').textContent = loc || 'unknown'; $('#al-loc').className = loc ? 'on' : 'off'; })
+      .catch(() => { $('#al-loc').textContent = 'unknown'; });
+  } else if (!s.exit_ip) {
+    lastExitIp = ''; $('#al-loc').textContent = '—'; $('#al-loc').className = 'off';
+  }
+}
+
+// live output from anond, streamed into the panel instead of an external terminal
+const alConsole = () => $('#al-console');
+function alLog(line, first) {
+  const box = alConsole();
+  if (first) box.innerHTML = '';
+  const d = el('div', 'ln' + (/fail|refus|error|leak/i.test(line) ? ' hit' : ''), line);
+  box.appendChild(d);
+  box.scrollTop = box.scrollHeight;
+}
+listen('anond-line', e => alLog(String(e.payload)));
+
+async function runAnond(action, label) {
+  alLog(`> ${label}…`, true);
+  try {
+    const code = await invoke('anond_action_streamed', { action });
+    alLog(code === 0 ? `> ${label} finished.` : `> ${label} exited with code ${code}.`);
+  } catch (e) {
+    alLog(`> could not run ${label}: ${e}`);
+  }
+  paintAnon();
 }
 {
-  const note = () => $('#anon-note');
-  $('#anon-up').addEventListener('click', () => handoff(note(), 'anond_action', { action: $('#anon-i2p').checked ? 'up-i2p' : 'up' }, $('#anon-i2p').checked ? 'Going anonymous (Tor + i2p)' : 'Going anonymous'));
-  $('#anon-down').addEventListener('click', () => handoff(note(), 'anond_action', { action: 'down' }, 'Stopping anond'));
-  $('#anon-verify').addEventListener('click', () => handoff(note(), 'anond_action', { action: 'verify' }, 'The leak test'));
-  $('#anon-newid').addEventListener('click', () => handoff(note(), 'anond_action', { action: 'new-identity' }, 'A new identity'));
+  // i2p is an icon toggle now, not a tick: easier to see at a glance whether it is armed
+  const i2p = $('#anon-i2p');
+  const i2pOn = () => i2p.getAttribute('aria-checked') === 'true';
+  i2p.addEventListener('click', () => i2p.setAttribute('aria-checked', i2pOn() ? 'false' : 'true'));
+
+  $('#anon-up').addEventListener('click', () =>
+    runAnond(i2pOn() ? 'up-i2p' : 'up', i2pOn() ? 'Going anonymous (Tor + i2p)' : 'Going anonymous'));
+  $('#anon-down').addEventListener('click', () => runAnond('down', 'Stopping anond'));
+  $('#anon-verify').addEventListener('click', () => runAnond('verify', 'The leak test'));
+  $('#anon-newid').addEventListener('click', () => runAnond('new-identity', 'A new identity'));
   $('#btn-browser-harden').addEventListener('click', () =>
     handoff($('#bh-note'), 'browser_harden', {}, 'Browser hardening'));
 }
@@ -513,5 +567,25 @@ loaders.wallpaper = async () => {
   };
 };
 
+// ---- per-tab notification indicators ----
+// A count pill on Update (pending package updates) and a dot on Kernels (a newer kernel is
+// published for an installed flavor). Refreshed at boot and after any update action, so a user
+// sees a pending update without opening the tab. No polling loop (idle-is-a-feature doctrine).
+const kver = v => (String(v).match(/\d+\.\d+\.\d+/) || [String(v)])[0]; // compare on the x.y.z core
+async function refreshBadges() {
+  try {
+    const n = await invoke('updates_count');
+    const b = $('#badge-update');
+    if (n > 0) { b.textContent = n > 99 ? '99+' : String(n); b.hidden = false; } else { b.hidden = true; }
+  } catch { /* leave the badge as-is on a transient failure */ }
+  try {
+    const [installed, manifest] = await Promise.all([invoke('kernels_list'), invoke('kernels_manifest')]);
+    const cur = {}; (manifest.flavors || []).forEach(f => { cur[f.name] = kver(f.current); });
+    const stale = (installed || []).some(k => cur[k.flavor] && kver(k.version) !== cur[k.flavor]);
+    $('#dot-kernels').hidden = !stale;
+  } catch { /* manifest unreachable: no dot rather than a false one */ }
+}
+
 // first paint
 loaders.dashboard();
+refreshBadges();
