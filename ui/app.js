@@ -353,9 +353,34 @@ const ANON_UI = {
 loaders.privacy = async () => {
   await paintAnon();
   paintBrowserHardening();
+  paintOnion();
   clearInterval(anonTimer);
-  anonTimer = setInterval(() => { if ($('#p-privacy').classList.contains('active')) paintAnon(); else clearInterval(anonTimer); }, 2000);
+  anonTimer = setInterval(() => { if ($('#p-privacy').classList.contains('active')) { paintAnon(); paintOnion(); } else clearInterval(anonTimer); }, 2000);
 };
+
+// arxonion app-isolation toggle: reflects whether the Tor-only namespace is up, and offers the
+// isolated terminal + per-browser isolated launch. Reuses the detected-browser set.
+async function paintOnion() {
+  let st; try { st = await invoke('arxonion_status'); } catch { return; }
+  const toggle = $('#onion-toggle'), actions = $('#onion-actions');
+  if (!toggle) return;
+  toggle.setAttribute('aria-checked', st.up ? 'true' : 'false');
+  toggle.disabled = !st.tor_available && !st.up;   // cannot isolate without Tor (fails closed)
+  toggle.title = st.tor_available ? 'Isolate apps you launch into a Tor-only network namespace'
+                                  : 'Start anond/Tor first — isolation needs Tor and fails closed without it';
+  actions.hidden = !st.up;
+  if (st.up && !actions.dataset.filled) {
+    // populate the per-browser isolated-launch buttons from the detected set
+    let found = []; try { found = await invoke('browser_status'); } catch {}
+    $('#onion-browsers-label').textContent = found.length ? 'Launch isolated:' : '';
+    $('#onion-browsers').innerHTML = found.map(b =>
+      `<button class="onion-browsers-btn" data-browser="${b}">${b}</button>`).join(' ');
+    $$('#onion-browsers .onion-browsers-btn').forEach(btn =>
+      btn.addEventListener('click', () => invoke('arxonion_launch_browser', { browser: btn.dataset.browser }).catch(e => alert(String(e)))));
+    actions.dataset.filled = '1';
+  }
+  if (!st.up) { actions.dataset.filled = ''; }
+}
 async function paintBrowserHardening() {
   let found; try { found = await invoke('browser_status'); } catch { return; }
   const dot = $('#bh-dot'), detail = $('#bh-detail');
@@ -439,6 +464,19 @@ async function runAnond(action, label) {
   $('#anon-newid').addEventListener('click', () => runAnond('new-identity', 'A new identity'));
   $('#btn-browser-harden').addEventListener('click', () =>
     handoff($('#bh-note'), 'browser_harden', {}, 'Browser hardening'));
+
+  // arxonion app-isolation: the toggle flips the persistent Tor-only namespace on/off; the
+  // isolated terminal opens a shell where every command routes through Tor.
+  const onion = $('#onion-toggle');
+  if (onion) {
+    onion.addEventListener('click', async () => {
+      const turningOn = onion.getAttribute('aria-checked') !== 'true';
+      onion.setAttribute('aria-checked', turningOn ? 'true' : 'false'); // optimistic; paintOnion reconciles
+      try { await invoke('arxonion_toggle', { on: turningOn }); } catch (e) { alert(String(e)); }
+      setTimeout(paintOnion, 600);
+    });
+    $('#onion-shell')?.addEventListener('click', () => invoke('arxonion_shell').catch(e => alert(String(e))));
+  }
 }
 
 // ---- services ----

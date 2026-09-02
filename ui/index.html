@@ -186,6 +186,41 @@
         <button class="btn-g" id="anon-newid">New identity</button>
       </div>
 
+      <!-- arxonion: the strong, structural isolation layer -->
+      <div class="card wide onion-card">
+        <div class="onion-head">
+          <div>
+            <span class="k">App isolation · arxonion</span>
+            <div class="onion-title">Run apps in a Tor-only namespace</div>
+          </div>
+          <button class="i2p-toggle" id="onion-toggle" role="switch" aria-checked="false" title="Isolate apps you launch into a Tor-only network namespace">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 3.2l5.5 3.2v6.2L12 17.8 6.5 14.6V8.4L12 5.2z"/></svg>
+            <span>isolate</span>
+          </button>
+        </div>
+        <p class="panel-note" style="margin-top:10px">
+          Stronger than the transparent proxy above: an isolated app runs in a network namespace
+          whose only route is Tor, so it <b>cannot see or reach your real IP even if it is fully
+          compromised</b> (a browser exploit, malware). This is the structural guarantee, applied
+          per-app so ArxOS stays a daily driver.
+        </p>
+        <div class="onion-actions" id="onion-actions" hidden>
+          <button class="btn-p sm" id="onion-shell">Open isolated terminal</button>
+          <span class="dim" id="onion-browsers-label" style="font-size:.8rem"></span>
+          <span id="onion-browsers"></span>
+        </div>
+        <div class="onion-boundary">
+          <b>What this does and does not do — honestly.</b> Everything you launch <em>from</em> the
+          isolated mode (the terminal here, and browsers you start with it) is routed through Tor,
+          comprehensively, until you switch it off. It does <b>not</b> retroactively route
+          already-open windows or background services — doing that would mean moving your whole
+          login session into the namespace, which is heavy and can lock you out of your desktop.
+          The daily-driver-correct trade is: isolate what you launch here, keep the rest of the
+          system normal. Requires anond/Tor running; it fails closed (an isolated app simply cannot
+          connect) if Tor is down.
+        </div>
+      </div>
+
       <div class="anon-live" id="anon-live">
         <div class="al-grid">
           <div class="al-cell"><span class="k">Tor</span><b id="al-tor">—</b></div>

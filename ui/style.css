@@ -397,3 +397,16 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opa
 .vm-list{display:flex;flex-direction:column;gap:12px}
 .vm-card{padding:16px 20px}
 .vm-card .btn-g.sm{flex:none}
+
+/* ---- arxonion app-isolation block (Privacy panel) ---- */
+.panel-note{font-size:.86rem;color:var(--muted);line-height:1.55}
+.onion-card{margin-top:14px}
+.onion-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.onion-title{font-size:1.05rem;font-weight:700;margin-top:2px}
+.onion-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:14px}
+.onion-browsers-btn{font:inherit;font-size:.78rem;font-weight:600;padding:6px 12px;border-radius:8px;cursor:pointer;
+  background:rgba(255,255,255,.06);color:var(--fg);border:1px solid var(--glass-br);transition:.16s}
+.onion-browsers-btn:hover{background:rgba(232,112,42,.16);border-color:var(--accent)}
+.onion-boundary{margin-top:14px;padding:12px 14px;border-radius:var(--r-sm);font-size:.8rem;line-height:1.55;
+  color:var(--muted);background:rgba(232,112,42,.06);border:1px solid rgba(232,112,42,.22)}
+.onion-boundary b{color:var(--fg)}

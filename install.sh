@@ -9,15 +9,16 @@ S=""; [ "$(id -u)" -ne 0 ] && S=sudo
 # --- binaries ----------------------------------------------------------------
 # arxctl (Tauri GUI) + arxos-notify (update ping) come prebuilt in a dist; from a
 # source checkout, build the release binaries first.
-ARXCTL="$D/arxctl"; NOTIFY="$D/arxos-notify"; ANOND="$D/anond"
+ARXCTL="$D/arxctl"; NOTIFY="$D/arxos-notify"; ANOND="$D/anond"; ONION="$D/arxonion"
 [ -x "$ARXCTL" ] || ARXCTL="$D/target/release/arxctl"
 [ -x "$NOTIFY" ] || NOTIFY="$D/target/release/arxos-notify"
 [ -x "$ANOND" ]  || ANOND="$D/target/release/anond"
+[ -x "$ONION" ]  || ONION="$D/target/release/arxonion"
 if [ ! -x "$ARXCTL" ] || [ ! -x "$NOTIFY" ] || [ ! -x "$ANOND" ]; then
   if command -v cargo >/dev/null 2>&1 && [ -f "$D/Cargo.toml" ]; then
-    # source checkout: build the whole workspace (arxctl + arxos-notify + anond)
+    # source checkout: build the whole workspace (arxctl + arxos-notify + anond + arxonion)
     ( cd "$D" && cargo build --release ) \
-      && ARXCTL="$D/target/release/arxctl" && NOTIFY="$D/target/release/arxos-notify" && ANOND="$D/target/release/anond"
+      && ARXCTL="$D/target/release/arxctl" && NOTIFY="$D/target/release/arxos-notify" && ANOND="$D/target/release/anond" && ONION="$D/target/release/arxonion"
   else
     # binary-only dist (public -dist mirror ships no source): download the prebuilt
     # binaries from the public release. Source never ships; only the compiled artifacts.
@@ -29,12 +30,15 @@ if [ ! -x "$ARXCTL" ] || [ ! -x "$NOTIFY" ] || [ ! -x "$ANOND" ]; then
     dl "$BASE/arxctl"       "$TMP/arxctl"       && chmod +x "$TMP/arxctl"       && ARXCTL="$TMP/arxctl"
     dl "$BASE/arxos-notify" "$TMP/arxos-notify" && chmod +x "$TMP/arxos-notify" && NOTIFY="$TMP/arxos-notify"
     dl "$BASE/anond"        "$TMP/anond"        && chmod +x "$TMP/anond"        && ANOND="$TMP/anond"
+    dl "$BASE/arxonion"     "$TMP/arxonion"     && chmod +x "$TMP/arxonion"     && ONION="$TMP/arxonion"
   fi
 fi
 [ -x "$ARXCTL" ] && $S install -Dm755 "$ARXCTL" /usr/local/bin/arxctl
 [ -x "$NOTIFY" ] && $S install -Dm755 "$NOTIFY" /usr/local/bin/arxos-notify
 # anond (the anonymity daemon) ships bundled inside the Control Center
 [ -x "$ANOND" ]  && $S install -Dm755 "$ANOND"  /usr/local/bin/anond
+# arxonion (per-app Tor-only network-namespace isolation), driven from the Privacy panel
+[ -x "$ONION" ]  && $S install -Dm755 "$ONION"  /usr/local/bin/arxonion
 # anond's transparent-proxy kill-switch needs a real netfilter backend + conntrack: it flushes
 # the connection-tracking table when arming so no pre-existing flow can survive in the clear
 # (the classic transproxy leak). These MUST be present or a user hits a missing package mid-arm

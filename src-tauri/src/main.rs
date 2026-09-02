@@ -309,6 +309,50 @@ fn anond_action(action: String) -> Result<(), String> {
     }
 }
 
+// ---------- arxonion: per-app Tor-only isolation (the strong, structural layer over anond) ----
+#[derive(Serialize)]
+struct OnionStatus { up: bool, tor_available: bool }
+
+// Is the arxonion namespace up, and is Tor available for it? (read-only, no root needed)
+#[tauri::command]
+fn arxonion_status() -> OnionStatus {
+    let up = std::process::Command::new("ip").args(["netns", "list"]).output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).contains("arxonion")).unwrap_or(false);
+    let tor_available = std::net::TcpStream::connect_timeout(
+        &"127.0.0.1:9040".parse().unwrap(), std::time::Duration::from_millis(300)).is_ok()
+        || std::net::TcpStream::connect_timeout(
+        &"127.0.0.1:9050".parse().unwrap(), std::time::Duration::from_millis(300)).is_ok();
+    OnionStatus { up, tor_available }
+}
+
+// Flip isolation on/off. ON keeps the Tor-only namespace up (persistent) so every app launched
+// isolated shares it; OFF tears it down. Privileged, via pkexec (no terminal to auth in).
+#[tauri::command]
+fn arxonion_toggle(on: bool) -> Result<(), String> {
+    launch_priv("arxonion", &[if on { "up" } else { "down" }])
+}
+
+// Open an isolated terminal — an arxonion shell where EVERY command routes through Tor and the
+// real interface is unreachable. This is the "all commands after this are isolated" surface.
+#[tauri::command]
+fn arxonion_shell() -> Result<(), String> {
+    spawn_terminal("pkexec arxonion shell")
+}
+
+// Launch one detected browser inside the isolation namespace (Tor-only, real IP unreachable).
+#[tauri::command]
+fn arxonion_launch_browser(browser: String) -> Result<(), String> {
+    // map the display name back to its real launcher binary; reject anything not in the set so
+    // an arbitrary command can never be injected into the privileged launch.
+    let bin = match browser.as_str() {
+        "Firefox" => "firefox", "Waterfox" => "waterfox", "Brave" => "brave",
+        "LibreWolf" => "librewolf", "Mullvad Browser" => "mullvad-browser",
+        "Chromium" => "chromium", "Tor Browser" => "torbrowser-launcher",
+        _ => return Err("unknown browser".into()),
+    };
+    spawn_terminal(&format!("pkexec arxonion run {bin}"))
+}
+
 // Run an anond action and STREAM its output back into the Privacy panel line by line, so
 // everything the external terminal would print (each fail-closed step, the leak test, the new
 // exit IP) is visible in the app itself. pkexec is used rather than a terminal handoff because
@@ -396,6 +440,7 @@ fn main() {
             system_info, updates_count, updates_breakdown, kernels_list, kernels_manifest, weapons_categories, arsenal_totals, arsenal_totals_refresh, weapons_menu_rebuild, browser_harden, browser_status, services_status,
             weapons_install, weapons_remove, weapons_browse, system_update, sync_databases, kernel_install, kernel_remove,
             anond_status, anond_action, anond_action_streamed, anond_exit_location,
+            arxonion_status, arxonion_toggle, arxonion_shell, arxonion_launch_browser,
             perf::perf_status, perf::perf_set_governor, perf::perf_set_epp, perf::perf_set_turbo, perf::perf_apply_profile,
             net::net_status, net::net_ports, net::net_disable_service, net::net_block_port,
             wallpaper::wallpapers_list, wallpaper::wallpaper_set, wallpaper::wallpaper_fetch,
