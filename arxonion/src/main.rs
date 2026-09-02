@@ -190,9 +190,18 @@ fn invoking_user() -> Option<String> {
 }
 
 fn uid_to_name(uid: &str) -> Option<String> {
+    passwd_field(|f| f[2] == uid, 0)
+}
+
+fn user_home(user: &str) -> Option<String> {
+    passwd_field(|f| f[0] == user, 5)
+}
+
+// scan /etc/passwd for the first line matching `pred` and return column `col` (0=name..6=shell).
+fn passwd_field<F: Fn(&[&str]) -> bool>(pred: F, col: usize) -> Option<String> {
     std::fs::read_to_string("/etc/passwd").ok()?.lines().find_map(|l| {
         let f: Vec<&str> = l.split(':').collect();
-        (f.len() > 2 && f[2] == uid).then(|| f[0].to_string())
+        (f.len() > col && pred(&f)).then(|| f[col].to_string())
     })
 }
 
@@ -200,13 +209,24 @@ fn exec_in_ns(cmd: &[String]) -> Result<i32> {
     let mut args: Vec<String> = vec!["netns".into(), "exec".into(), NETNS.into()];
     // Run the app AS THE INVOKING USER, not root. Root is needed only to enter the namespace; the
     // program must not run privileged — a GUI app as root refuses or writes root-owned files into
-    // the user's home, and because the Control Center launches us via pkexec (passwordless for
-    // wheel) a root-run arbitrary command would be a passwordless-root-exec surface. `runuser -u`
-    // drops to the user while keeping the caller's environment (so a GUI app's DISPLAY/XAUTHORITY
-    // survive) and fixing HOME/USER. If no unprivileged invoker is recorded (a direct root shell),
-    // fall back to running as root.
+    // the user's home, and because the Control Center launches us via pkexec/sudo a root-run
+    // arbitrary command would be a privileged-exec surface. `runuser -u` drops to the user.
     if let Some(user) = invoking_user() {
-        args.extend(["runuser".into(), "-u".into(), user, "--".into()]);
+        args.extend(["runuser".into(), "-u".into(), user.clone(), "--".into()]);
+        // Re-assert the user's HOME + X credentials for the app via `env`, AFTER the drop. sudo
+        // sets HOME=/root and PAM/runuser can clear XAUTHORITY, which leaves a GUI app unable to
+        // find its X cookie ("Authorization required, but no authorization protocol specified" /
+        // "cannot open display"). Pass HOME explicitly, and DISPLAY + XAUTHORITY when a display is
+        // in scope (carried in via `sudo --preserve-env`, else default to the user's ~/.Xauthority).
+        args.push("env".into());
+        let home = user_home(&user);
+        if let Some(ref h) = home { args.push(format!("HOME={h}")); }
+        if let Ok(display) = std::env::var("DISPLAY") {
+            args.push(format!("DISPLAY={display}"));
+            let xauth = std::env::var("XAUTHORITY").ok()
+                .or_else(|| home.as_ref().map(|h| format!("{h}/.Xauthority")));
+            if let Some(x) = xauth { args.push(format!("XAUTHORITY={x}")); }
+        }
     }
     args.extend(cmd.iter().cloned());
     let st = Command::new("ip").args(&args).status().context("exec command in the namespace")?;
