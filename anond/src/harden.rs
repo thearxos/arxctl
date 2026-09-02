@@ -21,13 +21,30 @@ pub fn apply(sess: &mut Session, mac: bool) -> Result<()> {
 
     // HOSTNAME: the machine's hostname leaks to the LAN/router (and the ISP's DHCP logs) on
     // every lease. A distinctive name like "arxos" tags the user as an ArxOS box before Tor is
-    // even in the picture. Spoof the TRANSIENT hostname to a generic value for the session, and
-    // restore the original on `down`. Transient-only: /etc/hostname on disk is untouched, so a
-    // reboot restores it even if `down` never ran. Default-on (unlike --mac, this costs nothing
-    // and cannot bounce a link).
+    // even in the picture. Spoof the hostname to a generic value for the session and restore the
+    // original on `down`. Two layers, because a TRANSIENT-ONLY spoof does NOT hold: on a box with
+    // NetworkManager/systemd-hostnamed (measured on the dev VM), a network event mid-session makes
+    // the hostname manager RE-ASSERT the static hostname from /etc/hostname, silently reverting our
+    // "localhost" back to "arxos" while anond still reports Active (a real LAN-tag leak found in a
+    // 3x deep-leak run: run 3 read "arxos"). So we ALSO bind-mount a generic /etc/hostname over the
+    // real one — exactly the machine-id pattern: any re-read of the static source now yields the
+    // generic name, it is transient (a reboot restores the real file even if `down` never runs),
+    // and it is fully reversible via umount, with no persistent disk write. Default-on (unlike
+    // --mac, this costs nothing and cannot bounce a link).
     let orig_host = out("hostname", &[]).trim().to_string();
     if !orig_host.is_empty() && orig_host != GENERIC_HOSTNAME {
-        if run("hostname", &[GENERIC_HOSTNAME]).is_ok() {
+        // 1. transient hostname now, for immediate effect (before any manager re-reads the file).
+        let set_ok = run("hostname", &[GENERIC_HOSTNAME]).is_ok();
+        // 2. durable: bind-mount a generic /etc/hostname so a re-read re-applies the generic name.
+        if !sess.hostname_mount && out("mount", &[]).lines().all(|l| !l.contains("/etc/hostname")) {
+            let tmp = "/run/anond/hostname";
+            let _ = crate::util::ensure_dirs();
+            if std::fs::write(tmp, format!("{GENERIC_HOSTNAME}\n")).is_ok()
+                && run("mount", &["--bind", tmp, "/etc/hostname"]).is_ok() {
+                sess.hostname_mount = true;
+            }
+        }
+        if set_ok || sess.hostname_mount {
             sess.hostname_backup = Some(orig_host);
         }
     }
@@ -80,6 +97,11 @@ pub fn restore(sess: &Session) -> Result<()> {
     if sess.machine_id_spoofed {
         // unmount the random machine-id bind mount; the real /etc/machine-id is exposed again.
         let _ = run("umount", &["/etc/machine-id"]);
+    }
+    if sess.hostname_mount {
+        // expose the real /etc/hostname again (unmount the generic bind-mount) BEFORE resetting the
+        // transient name, so any manager that re-reads it now sees the real hostname.
+        let _ = run("umount", &["/etc/hostname"]);
     }
     if let Some(ref orig) = sess.hostname_backup {
         let _ = run("hostname", &[orig]);

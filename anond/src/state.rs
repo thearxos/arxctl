@@ -30,6 +30,11 @@ pub struct Session {
     /// original transient hostname, restored on down (only set when the hostname was spoofed).
     #[serde(default)]
     pub hostname_backup: Option<String>,
+    /// a generic /etc/hostname was bind-mounted over the real one this session (unmount on down),
+    /// so NetworkManager/systemd-hostnamed re-reads the generic name instead of reverting to the
+    /// real hostname mid-session.
+    #[serde(default)]
+    pub hostname_mount: bool,
     /// a random machine-id was bind-mounted over /etc/machine-id this session (unmount on down).
     #[serde(default)]
     pub machine_id_spoofed: bool,
@@ -41,7 +46,7 @@ impl Session {
             state: State::Down, tor_uid,
             since: now(),
             resolv_backup: None, mac_backup: Vec::new(), swap_was_on: false, i2p: false,
-            hostname_backup: None, machine_id_spoofed: false,
+            hostname_backup: None, hostname_mount: false, machine_id_spoofed: false,
         }
     }
     pub fn save(&self) -> Result<()> {
