@@ -62,12 +62,24 @@ fn start_inner() -> Result<()> {
     Ok(())
 }
 
-pub fn wait_bootstrap(timeout: Duration) -> Result<()> {
+/// The latest Tor bootstrap percentage from the log (0-100), for a live progress display.
+pub fn bootstrap_pct() -> u8 {
+    let log = std::fs::read_to_string(log_path()).unwrap_or_default();
+    log.rmatch_indices("Bootstrapped ").next()
+        .and_then(|(i, _)| log[i + 13..].split('%').next())
+        .and_then(|s| s.trim().parse::<u8>().ok())
+        .unwrap_or(0)
+}
+
+/// Called each poll while waiting, so a GUI reading the world-readable snapshot can show live
+/// progress ("Bootstrapping 56% — this can take a few minutes") instead of a frozen-looking UI.
+pub fn wait_bootstrap_with<F: FnMut(u8)>(timeout: Duration, mut on_pct: F) -> Result<()> {
     let start = Instant::now();
     let mut restarts = 0;
     const MAX_RESTARTS: u32 = 4;
     loop {
         let log = std::fs::read_to_string(log_path()).unwrap_or_default();
+        on_pct(bootstrap_pct());
         if log.contains("Bootstrapped 100%") { return Ok(()); }
         if log.contains("[err]") { bail!("tor reported an error during bootstrap (see {})", log_path()); }
         // Detect a DEAD Tor process (a crash logs "died: Caught signal N", NOT "[err]", so the
@@ -95,6 +107,11 @@ pub fn wait_bootstrap(timeout: Duration) -> Result<()> {
         if start.elapsed() > timeout { bail!("tor bootstrap timed out after {}s (staying blocked)", timeout.as_secs()); }
         std::thread::sleep(Duration::from_millis(500));
     }
+}
+
+/// Back-compat: wait with no progress callback.
+pub fn wait_bootstrap(timeout: Duration) -> Result<()> {
+    wait_bootstrap_with(timeout, |_| {})
 }
 
 pub fn stop() -> Result<()> {

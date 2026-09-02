@@ -243,6 +243,9 @@ fn weapons_browse() -> Result<(), String> { launch_arx(&["weapons", "list-all"])
 struct AnondStatus {
     state: String,
     exit_ip: String,
+    // live Tor bootstrap percentage (0-100) while state is Bootstrapping, so the panel shows
+    // real progress instead of looking frozen during the multi-minute bring-up.
+    bootstrap_pct: u8,
     // each layer, read from anond's world-readable snapshot (no root, no terminal needed)
     tor: String,
     killswitch: String,
@@ -272,8 +275,9 @@ fn anond_status() -> AnondStatus {
     let resolver = read("/etc/resolv.conf").lines()
         .find_map(|l| l.strip_prefix("nameserver ").map(|v| v.trim().to_string()))
         .unwrap_or_default();
+    let pct = v.get("bootstrap_pct").and_then(|x| x.as_u64()).unwrap_or(0).min(100) as u8;
     AnondStatus {
-        state: s("state", "Down"), exit_ip: s("exit_ip", ""),
+        state: s("state", "Down"), exit_ip: s("exit_ip", ""), bootstrap_pct: pct,
         tor: s("tor", "stopped"), killswitch: s("killswitch", "down"),
         dns: s("dns", "open"), i2p: s("i2p", "off"),
         mac, iface, resolver,

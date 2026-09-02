@@ -398,8 +398,16 @@ async function paintAnon() {
   let s; try { s = await invoke('anond_status'); } catch { return; }
   const u = ANON_UI[s.state] || ANON_UI.Down;
   $('#anon-dot').className = 'anon-dot ' + u.cls;
-  $('#anon-state-txt').textContent = u.txt;
-  $('#anon-exit').textContent = s.state === 'Active' && s.exit_ip ? 'exit IP ' + s.exit_ip : '';
+  // Bootstrapping: show the REAL % + a note that it can take a few minutes, so the panel never
+  // looks frozen/dead during Tor's multi-minute bring-up (the % comes live from anond's snapshot).
+  if (s.state === 'Bootstrapping') {
+    const pct = s.bootstrap_pct || 0;
+    $('#anon-state-txt').textContent = `Bootstrapping Tor ${pct}% — this can take a few minutes…`;
+    $('#anon-exit').textContent = pct < 50 ? 'connecting to the Tor network…' : 'loading relay descriptors…';
+  } else {
+    $('#anon-state-txt').textContent = u.txt;
+    $('#anon-exit').textContent = s.state === 'Active' && s.exit_ip ? 'exit IP ' + s.exit_ip : '';
+  }
   $('#anon-up').disabled = s.state === 'Active';
   $('#anon-down').disabled = s.state === 'Down';
 

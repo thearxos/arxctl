@@ -19,10 +19,14 @@ use state::State;
 // GUI, running as the desktop user, can show the FULL picture without reading the root-only
 // session file and without shelling out to a terminal for it.
 fn write_pub(state: &str, exit_ip: &str, leaking: bool) {
+    write_pub_full(state, exit_ip, leaking, 0);
+}
+
+fn write_pub_full(state: &str, exit_ip: &str, leaking: bool, bootstrap_pct: u8) {
     let _ = util::ensure_dirs();
     let p = format!("{}/pub.json", util::RUN_DIR);
     let json = format!(
-        "{{\"state\":\"{state}\",\"exit_ip\":\"{exit_ip}\",\"tor\":\"{}\",\"killswitch\":\"{}\",\"dns\":\"{}\",\"i2p\":\"{}\",\"leaking\":{leaking}}}",
+        "{{\"state\":\"{state}\",\"exit_ip\":\"{exit_ip}\",\"tor\":\"{}\",\"killswitch\":\"{}\",\"dns\":\"{}\",\"i2p\":\"{}\",\"leaking\":{leaking},\"bootstrap_pct\":{bootstrap_pct}}}",
         if tor::running() { "running" } else { "stopped" },
         if killswitch::is_up() { "armed" } else { "down" },
         if dns::is_pinned() { "pinned" } else { "open" },
@@ -31,6 +35,16 @@ fn write_pub(state: &str, exit_ip: &str, leaking: bool) {
     if std::fs::write(&p, json).is_ok() {
         let _ = std::process::Command::new("chmod").args(["644", &p]).status();
     }
+}
+
+// Update the live snapshot during bootstrap so the GUI shows the real % (never a dead-looking panel).
+fn write_pub_bootstrapping(pct: u8) { write_pub_full("Bootstrapping", "", false, pct); }
+
+// arx-style segmented loader bar: filled ▰ / empty ▱, 20 segments, for the terminal progress line.
+fn bar(pct: u8) -> String {
+    let segs = 20usize;
+    let filled = (pct as usize * segs / 100).min(segs);
+    format!("{}{}", "▰".repeat(filled), "▱".repeat(segs - filled))
 }
 
 /// The reconciled truth about the session, NOT the state persisted on disk. This exists
@@ -127,7 +141,7 @@ fn up(args: &[String]) -> Result<()> {
         println!("[3/5] pinning DNS to Tor…");
         dns::pin(&mut sess)?; sess.save()?;
         // 4. bring up Tor and WAIT for a real bootstrap
-        println!("[4/5] starting Tor and waiting for bootstrap…");
+        println!("[4/5] starting Tor (this can take a few minutes on a slow connection)…");
         sess.state = State::Bootstrapping; sess.save()?;
         tor::start()?;
         // 300s not 120s: on a slow network/VM, Tor's descriptor-fetch phase (50-56%) can take
@@ -135,7 +149,19 @@ fn up(args: &[String]) -> Result<()> {
         // The old 120s timeout fired mid-bootstrap and reported a false failure -> Locked, even
         // though Tor was healthy and still climbing. Fail-closed still holds: nothing egresses
         // until 100% + verify pass, so a longer wait costs latency, never safety.
-        tor::wait_bootstrap(std::time::Duration::from_secs(300))?;
+        // Live progress: an arx-style segmented bar with the REAL % in the terminal, AND the %
+        // pushed into the world-readable snapshot so the GUI shows "Bootstrapping NN%" instead
+        // of a frozen-looking panel (the user asked: don't let it look dead).
+        let mut last_pct = 255u8;
+        tor::wait_bootstrap_with(std::time::Duration::from_secs(300), |pct| {
+            if pct != last_pct {
+                last_pct = pct;
+                print!("\r  {}  bootstrapping Tor {pct:>3}%   ", bar(pct));
+                use std::io::Write; let _ = std::io::stdout().flush();
+                write_pub_bootstrapping(pct);   // GUI reads this live from pub.json
+            }
+        })?;
+        println!();   // finish the progress line
         // 4b. optional i2p overlay. i2pd builds tunnels in the background; we wait only for its
         // proxy to come up (fast), not the slow full tunnel build (eepsites take a few minutes).
         if want_i2p {
