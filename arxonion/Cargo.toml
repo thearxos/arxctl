@@ -1,0 +1,13 @@
+[package]
+name = "arxonion"
+version = "0.0.1"
+edition = "2021"
+description = "ArxOS per-app Tor isolation: run a command in a network namespace whose only egress is Tor"
+authors = ["0xb0rn3"]
+
+[[bin]]
+name = "arxonion"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"

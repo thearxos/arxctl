@@ -6,7 +6,7 @@
 #                 and driven from its Privacy panel. Added when anond lands.
 [workspace]
 resolver = "2"
-members = ["src-tauri", "arxos-notify", "anond"]
+members = ["src-tauri", "arxos-notify", "anond", "arxonion"]
 
 [workspace.package]
 version = "0.0.1"
