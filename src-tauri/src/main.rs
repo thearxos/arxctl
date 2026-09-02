@@ -21,6 +21,26 @@ fn run(cmd: &str, args: &[&str]) -> String {
         .map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default()
 }
 
+// Is Tor's SOCKS port listening? (127.0.0.1:9050 — anond's Tor, or a standalone tor).
+fn tor_socks_up() -> bool {
+    std::net::TcpStream::connect_timeout(
+        &"127.0.0.1:9050".parse().unwrap(),
+        std::time::Duration::from_millis(300),
+    ).is_ok()
+}
+
+// curl for an ArxOS-identifying fetch (the kernel manifest, arsenal index): route it through
+// Tor's SOCKS proxy whenever Tor is available, so GitHub/the arsenal host never ties the
+// ArxOS-specific fetch to the user's real IP (the "this box runs ArxOS" beacon). Falls back to
+// a direct fetch only when Tor is not running (the user is not anonymised then anyway).
+fn run_private_curl(args: &[&str]) -> String {
+    let mut full: Vec<String> = Vec::new();
+    if tor_socks_up() { full.push("--socks5-hostname".into()); full.push("127.0.0.1:9050".into()); }
+    for a in args { full.push((*a).to_string()); }
+    let refs: Vec<&str> = full.iter().map(String::as_str).collect();
+    run("curl", &refs)
+}
+
 // ---------- read-only system state ----------
 
 #[derive(Serialize)]
@@ -91,7 +111,9 @@ fn kernels_list() -> Vec<Kernel> {
 
 #[tauri::command]
 fn kernels_manifest() -> KManifest {
-    let raw = run("curl", &["-fsSL", "--max-time", "20",
+    // Tor-routed when Tor is up: this fetch is ArxOS-identifying (the arxos-kernels manifest),
+    // so it must not tie the user's real IP to "runs ArxOS" at the GitHub side.
+    let raw = run_private_curl(&["-fsSL", "--max-time", "30",
         "https://raw.githubusercontent.com/thearxos/arxos-kernels/main/kernels.json"]);
     let v: serde_json::Value = serde_json::from_str(&raw).unwrap_or(serde_json::Value::Null);
     let s = |x: &serde_json::Value, k: &str| x.get(k).and_then(|y| y.as_str()).unwrap_or("").to_string();
