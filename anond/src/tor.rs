@@ -49,6 +49,14 @@ pub fn start() -> Result<()> {
     write_torrc()?;
     // truncate the log so bootstrap detection reads THIS run.
     let _ = std::fs::write(log_path(), b"");
+    start_inner()
+}
+
+// Launch tor with the already-written torrc, truncating the log first so crash-restart
+// detection reads only the CURRENT attempt (a stale "Caught signal" from a prior run must not
+// re-trigger the restart logic). Used by start() and by wait_bootstrap()'s crash-restart.
+fn start_inner() -> Result<()> {
+    let _ = std::fs::write(log_path(), b"");
     // RunAsDaemon makes `tor -f` fork and return once the config is validated.
     run("tor", &["-f", &torrc_path()]).context("start tor (is tor installed?)")?;
     Ok(())
@@ -56,10 +64,34 @@ pub fn start() -> Result<()> {
 
 pub fn wait_bootstrap(timeout: Duration) -> Result<()> {
     let start = Instant::now();
+    let mut restarts = 0;
+    const MAX_RESTARTS: u32 = 4;
     loop {
         let log = std::fs::read_to_string(log_path()).unwrap_or_default();
         if log.contains("Bootstrapped 100%") { return Ok(()); }
         if log.contains("[err]") { bail!("tor reported an error during bootstrap (see {})", log_path()); }
+        // Detect a DEAD Tor process (a crash logs "died: Caught signal N", NOT "[err]", so the
+        // old loop polled a corpse to the timeout and reported a false failure). The primary
+        // cause of the crash — our own health-check probes connecting to Tor's TransPort, which
+        // made Tor 0.4.9.11 SIGSEGV on getsockopt(SO_ORIGINAL_DST)=127.0.0.1 — is FIXED (all
+        // probes now hit the SOCKS port only). This restart is the remaining safety net for any
+        // OTHER Tor death: give the just-started process a grace period before judging it dead
+        // (so a slow fork/init is not misread as a crash), restart a bounded number of times,
+        // then fail closed. It never truncates the log mid-flight (that erased progress evidence
+        // and caused false re-restarts).
+        let signaled = log.contains("Caught signal");
+        let dead = !running() && start.elapsed() > Duration::from_secs(3);
+        if signaled || dead {
+            if restarts >= MAX_RESTARTS {
+                bail!("tor died repeatedly during bootstrap ({restarts} restarts; see {}). Staying blocked.", log_path());
+            }
+            restarts += 1;
+            let _ = stop();
+            std::thread::sleep(Duration::from_millis(500));
+            start_inner()?; // relaunch tor with the same torrc (start_inner truncates the log)
+            std::thread::sleep(Duration::from_secs(2)); // let it fork + start writing before re-judging
+            continue;
+        }
         if start.elapsed() > timeout { bail!("tor bootstrap timed out after {}s (staying blocked)", timeout.as_secs()); }
         std::thread::sleep(Duration::from_millis(500));
     }
@@ -91,9 +123,15 @@ pub fn new_identity() -> Result<()> {
     else { bail!("tor refused NEWNYM: {}", resp.lines().next().unwrap_or("").trim()) }
 }
 
-/// true if a Tor process we started is alive.
+/// true if a Tor process we started is alive. Checks /proc/<pid> directly — the previous
+/// `!out("kill","-0",pid).is_empty()` was a bug: `kill -0` prints NOTHING on success (its result
+/// is the exit code, and any error goes to stderr), so that operand was always false and liveness
+/// rested entirely on the /proc fallback. Verify it is actually a tor process (not a recycled pid)
+/// by reading /proc/<pid>/comm, so a stale PidFile pointing at some other process cannot read as
+/// "tor running".
 pub fn running() -> bool {
-    std::fs::read_to_string(pid_path()).ok()
-        .map(|p| !out("kill", &["-0", p.trim()]).is_empty() || std::path::Path::new(&format!("/proc/{}", p.trim())).exists())
-        .unwrap_or(false)
+    let Some(pid) = std::fs::read_to_string(pid_path()).ok().map(|p| p.trim().to_string()) else { return false };
+    if pid.is_empty() { return false; }
+    std::fs::read_to_string(format!("/proc/{pid}/comm"))
+        .map(|c| c.trim() == "tor").unwrap_or(false)
 }

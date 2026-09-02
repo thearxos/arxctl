@@ -16,7 +16,15 @@ pub const TRANS_PORT: u16 = 9040;
 pub const DNS_PORT: u16 = 5353;
 // The local network stays reachable so an admin session (e.g. SSH) is not cut. This mirrors
 // anonkit's behaviour; it is a deliberate usability/lockout tradeoff, documented as such.
-const LAN: &str = "192.168.0.0/16";
+//
+// ALL private ranges, not just 192.168/16: traffic to a private address must be RETURNed (not
+// SYN-redirected to Tor's TransPort). If a private-dest packet reaches the TransPort, Tor
+// rejects it ("Rejecting request for anonymous connection to private address ... Possible loop
+// in your NAT rules?") and stalls bootstrap at 0% (and, on some tor builds, SIGSEGVs). A box
+// that talks to a 10.x/172.16.x LAN, or does any private-range probe during bring-up, hit
+// exactly this. Covering every RFC1918 + link-local + CGNAT range fixes the intermittent
+// "stuck at Bootstrapped 0%" and is also correct (private dests are LAN, never Tor's job).
+const PRIVATE: &str = "127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 100.64.0.0/10";
 
 fn ruleset(exempt_uids: &[u32]) -> String {
     // exempted uids (Tor, and i2pd when --i2p) egress DIRECTLY: their traffic is neither
@@ -26,10 +34,19 @@ fn ruleset(exempt_uids: &[u32]) -> String {
         "table inet anond {{\n\
          \tchain output_nat {{\n\
          \t\ttype nat hook output priority -100; policy accept;\n\
+         \t\t# Tor's OWN traffic (and i2pd's) is returned FIRST, before any redirect — otherwise\n\
+         \t\t# Tor's DNS lookups to its own DNSPort, and connections to its AutomapHostsOnResolve\n\
+         \t\t# virtual range, get redirected back into its TransPort. A redirected connection whose\n\
+         \t\t# original dest is that virtual/private address makes Tor 0.4.9.11 reject it ('private\n\
+         \t\t# address on a TransPort ... Possible loop in your NAT rules?') and SIGSEGV. Exempting\n\
+         \t\t# the tor uid up front breaks that loop.\n\
+         \t\tmeta skuid {{ {uids} }} return\n\
+         \t\t# private/LAN/loopback AND Tor's automap virtual range are never redirected to Tor:\n\
+         \t\t# they are LAN or Tor-internal, never Tor's job, and a private original-dest crashes\n\
+         \t\t# Tor's TransPort handler.\n\
+         \t\tip daddr {{ {PRIVATE}, 10.192.0.0/10 }} return\n\
          \t\tudp dport 53 redirect to :{DNS_PORT}\n\
          \t\ttcp dport 53 redirect to :{DNS_PORT}\n\
-         \t\tmeta skuid {{ {uids} }} return\n\
-         \t\tip daddr {{ 127.0.0.0/8, {LAN} }} return\n\
          \t\ttcp flags & (fin|syn|rst|ack) == syn redirect to :{TRANS_PORT}\n\
          \t}}\n\
          \tchain output {{\n\
@@ -37,7 +54,7 @@ fn ruleset(exempt_uids: &[u32]) -> String {
          \t\toif \"lo\" accept\n\
          \t\tmeta skuid {{ {uids} }} accept\n\
          \t\tct state established,related accept\n\
-         \t\tip daddr {{ 127.0.0.0/8, {LAN} }} accept\n\
+         \t\tip daddr {{ {PRIVATE} }} accept\n\
          \t\tudp dport {DNS_PORT} accept\n\
          \t\ttcp dport {{ {TRANS_PORT}, {DNS_PORT} }} accept\n\
          \t}}\n\

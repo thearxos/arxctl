@@ -46,10 +46,15 @@ fn is_root() -> bool {
         .lines().find(|l| l.starts_with("Uid:")).and_then(|l| l.split_whitespace().nth(1)) == Some("0")
 }
 fn tor_socks_or_trans_up() -> bool {
-    // Tor's TransPort (9040) is what the netns routes into; confirm Tor is actually listening.
+    // Probe ONLY the SOCKS port (9050) — NEVER the TransPort (9040). Connecting a plain TCP
+    // socket to the TransPort makes Tor call getsockopt(SO_ORIGINAL_DST), which for a direct
+    // (non-redirected) connection returns 127.0.0.1 — a private address — and Tor 0.4.9.11
+    // SIGSEGVs on it ("private address on a TransPort ... Possible loop in your NAT rules?").
+    // Our own health-check probes to 9040 were CRASHING Tor and causing the "stuck at
+    // Bootstrapped 0%" failures. The SOCKS port is a normal listener and safe to connect to;
+    // if Tor's SOCKS is up, its TransPort (same process) is up too.
+    let _ = TOR_TRANS; // kept as the DNAT target constant; never probed directly
     std::net::TcpStream::connect_timeout(
-        &format!("127.0.0.1:{TOR_TRANS}").parse().unwrap(), std::time::Duration::from_millis(400)).is_ok()
-        || std::net::TcpStream::connect_timeout(
         &"127.0.0.1:9050".parse().unwrap(), std::time::Duration::from_millis(400)).is_ok()
 }
 

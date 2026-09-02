@@ -130,7 +130,12 @@ fn up(args: &[String]) -> Result<()> {
         println!("[4/5] starting Tor and waiting for bootstrap…");
         sess.state = State::Bootstrapping; sess.save()?;
         tor::start()?;
-        tor::wait_bootstrap(std::time::Duration::from_secs(120))?;
+        // 300s not 120s: on a slow network/VM, Tor's descriptor-fetch phase (50-56%) can take
+        // 3+ minutes behind the kill-switch (measured: a clean VM bootstrap reached 100% at ~209s).
+        // The old 120s timeout fired mid-bootstrap and reported a false failure -> Locked, even
+        // though Tor was healthy and still climbing. Fail-closed still holds: nothing egresses
+        // until 100% + verify pass, so a longer wait costs latency, never safety.
+        tor::wait_bootstrap(std::time::Duration::from_secs(300))?;
         // 4b. optional i2p overlay. i2pd builds tunnels in the background; we wait only for its
         // proxy to come up (fast), not the slow full tunnel build (eepsites take a few minutes).
         if want_i2p {

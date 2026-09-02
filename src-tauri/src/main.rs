@@ -318,9 +318,10 @@ struct OnionStatus { up: bool, tor_available: bool }
 fn arxonion_status() -> OnionStatus {
     let up = std::process::Command::new("ip").args(["netns", "list"]).output()
         .map(|o| String::from_utf8_lossy(&o.stdout).contains("arxonion")).unwrap_or(false);
+    // Probe the SOCKS port (9050) ONLY, never the TransPort (9040): a plain TCP connect to the
+    // TransPort makes Tor 0.4.9.11 getsockopt(SO_ORIGINAL_DST)=127.0.0.1 and SIGSEGV. Our own
+    // status probe to 9040 was crashing Tor. SOCKS-up implies the same process's TransPort is up.
     let tor_available = std::net::TcpStream::connect_timeout(
-        &"127.0.0.1:9040".parse().unwrap(), std::time::Duration::from_millis(300)).is_ok()
-        || std::net::TcpStream::connect_timeout(
         &"127.0.0.1:9050".parse().unwrap(), std::time::Duration::from_millis(300)).is_ok();
     OnionStatus { up, tor_available }
 }

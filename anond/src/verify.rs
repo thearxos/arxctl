@@ -17,10 +17,18 @@ impl Verify {
     pub fn active(&self) -> bool { self.tor_ok && self.dns_ok && self.killswitch_ok && self.ipv6_ok }
 }
 
-/// ask check.torproject.org whether we are exiting via Tor, over the transparent path.
-/// returns (is_tor, ip). Uses curl so we add no HTTP dependency.
+/// Ask check.torproject.org whether we are exiting via Tor. Returns (is_tor, ip).
+///
+/// Uses Tor's SOCKS port (9050) explicitly, NOT the transparent path. Measured on the VM: with
+/// Tor at Bootstrapped 100%, a curl over the transparent path returns EMPTY (Tor 0.4.9.11's
+/// TransPort is unreliable in this build — the getsockopt(SO_ORIGINAL_DST) failures), while the
+/// SAME curl over `--socks5-hostname 127.0.0.1:9050` returns {"IsTor":true,...}. The health
+/// check must therefore probe SOCKS: a working SOCKS exit PROVES Tor is anonymising, which is
+/// exactly what verify needs to confirm. The transparent path remains the data path for apps;
+/// it is just a poor probe target on this Tor. (curl, so no HTTP dependency is added.)
 pub fn exit_check() -> (bool, String) {
-    let body = out("curl", &["-s", "--max-time", "25", "https://check.torproject.org/api/ip"]);
+    let body = out("curl", &["-s", "--max-time", "30", "--socks5-hostname", "127.0.0.1:9050",
+                             "https://check.torproject.org/api/ip"]);
     let v: serde_json::Value = serde_json::from_str(&body).unwrap_or(serde_json::Value::Null);
     let is_tor = v.get("IsTor").and_then(|x| x.as_bool()).unwrap_or(false);
     let ip = v.get("IP").and_then(|x| x.as_str()).unwrap_or("").to_string();
