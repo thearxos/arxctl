@@ -102,6 +102,35 @@ fn up(args: &[String]) -> Result<()> {
     // the user unprotected while telling them everything is fine. Only a genuinely-live Active
     // session skips re-establishment.
     if health().effective == State::Active {
+        // Already anonymous. One thing we still honor on a live session: ATTACHING the i2p overlay
+        // (the GUI Privacy toggle flips i2p ON while already Active; a bare `up --i2p` used to
+        // short-circuit here and silently do nothing). i2pd needs its uid in the kill-switch exempt
+        // set to egress, so re-arm ATOMICALLY (no leak window), then start i2pd additively — a
+        // failure never disturbs the working Tor session.
+        if args.iter().any(|a| a == "--i2p") && !i2p::running() {
+            let tor_uid = util::uid_of("tor")?;
+            let i2pd_uid = util::uid_of("i2pd")?;
+            println!("attaching the i2p overlay to the live session…");
+            killswitch::rearm(&[tor_uid, i2pd_uid])?;
+            match i2p::start() {
+                Ok(_) => if i2p::wait_ready(std::time::Duration::from_secs(75)).is_err() {
+                    println!("note: i2pd still initialising (tunnels build in the background)");
+                },
+                Err(e) => {
+                    // additive/non-fatal: i2pd did not start, so drop its uid back out of the
+                    // exempt set (leave the kill-switch exactly as tight as before) and keep Tor.
+                    let _ = killswitch::rearm(&[tor_uid]);
+                    println!("note: i2p unavailable ({e:#}); staying on Tor only");
+                }
+            }
+            let running = i2p::running();
+            if let Some(mut s) = state::load() { s.i2p = running; let _ = s.save(); }
+            // refresh the world-readable snapshot so the GUI reflects i2p immediately (write_pub_full
+            // recomputes tor/killswitch/dns/i2p live); keep the Active state, exit IP unchanged.
+            write_pub("Active", &verify::exit_ip().unwrap_or_default(), false);
+            println!("i2p overlay {}", if running { "attached (Tor session intact)" } else { "not attached (Tor session intact)" });
+            return Ok(());
+        }
         println!("anond is already active"); return Ok(());
     }
     // VPN->Tor advisory: Tor traffic is recognisable to the ISP (its TLS signature + known guard

@@ -102,6 +102,30 @@ fn flush_conntrack() {
                Close your browser/apps and reopen them after `anond up`.");
 }
 
+/// Atomically REPLACE the live ruleset in a single nft transaction, to change the exempt-uid set on
+/// an ALREADY-ARMED session (e.g. attaching the i2p overlay to a live session needs i2pd's uid in
+/// the exempt set). Because nft applies the whole `-f` input as one kernel transaction, there is
+/// never a moment where the default-drop policy is absent — no leak window. Unlike `up()`, it does
+/// NOT flush conntrack: on an already-armed session there are no pre-existing clear flows to purge,
+/// and the exempted uids egress by uid match regardless of conntrack state, so Tor's live
+/// connections survive the swap untouched. Adding a uid only ever WIDENS the exempt set by that
+/// uid; it opens nothing else.
+pub fn rearm(exempt_uids: &[u32]) -> Result<()> {
+    // `add table` before `delete table` makes the delete safe whether or not the table exists
+    // (add is idempotent); then the full ruleset recreates it — all in one atomic transaction.
+    let atomic = format!(
+        "add table inet anond\ndelete table inet anond\n\
+         add table ip6 anond6\ndelete table ip6 anond6\n{}",
+        ruleset(exempt_uids)
+    );
+    let mut child = Command::new("nft").args(["-f", "-"]).stdin(Stdio::piped())
+        .spawn().context("spawn nft (is nftables installed?)")?;
+    child.stdin.take().context("nft stdin")?.write_all(atomic.as_bytes())?;
+    let st = child.wait().context("wait nft")?;
+    anyhow::ensure!(st.success(), "kill-switch re-arm was rejected by nft");
+    Ok(())
+}
+
 pub fn down() -> Result<()> { down_quiet(); Ok(()) }
 
 fn down_quiet() {
