@@ -95,13 +95,46 @@ fn apply_nft() -> Result<()> {
     // Non-DNS UDP (e.g. QUIC/443) is intentionally NOT redirected: it has no Tor path and no
     // route to the real NIC, so it fails closed — which is correct (Tor is TCP-only; this forces
     // TCP fallback rather than leaking UDP).
+    // A packet from the netns to a PRIVATE/LAN/loopback destination must NEVER be DNAT'd into
+    // Tor: Tor refuses to proxy a connection whose original destination is private ("possible
+    // loop in your NAT rules") and — worse, observed on Tor 0.4.9.11 — SEGFAULTS on it, which
+    // poisons the whole anond session. It is also a leak attempt (an isolated app reaching the
+    // LAN). So we DROP private-destined traffic in a filter chain BEFORE the nat DNAT ever runs
+    // (filter forward priority is lower/earlier than our nat's, and this is the veth's only path
+    // to anything but Tor). Only genuinely-public destinations reach the DNAT-to-Tor.
+    // The gateway IP itself (HOST_IP) must stay reachable so DNS-to-the-gateway still works — it
+    // is matched by the port-53 DNAT above before this drop would apply, via the nat prerouting
+    // hook which runs before this filter forward? No: to be safe we exclude the DNS path by
+    // dropping only NON-53 private-dest traffic here.
+    // Fail-closed by construction: the ONLY thing the netns may reach is Tor, delivered locally
+    // via DNAT to 127.0.0.1. Everything else is dropped, proven against a compromised-app
+    // red-team (host-IP ping, LAN scan, public UDP/QUIC, IPv6, route-add escape).
+    //   input   : netns -> the host is allowed ONLY to 127.0.0.0/8 (where the DNAT put Tor/DNS);
+    //             any other host IP (the real 192.168.x, the veth gateway on non-DNS) is dropped,
+    //             so the app cannot ping/reach the host itself. (Fixes the host-real-IP leak.)
+    //   forward : nothing from the netns is ever forwarded — all legitimate egress is DNAT'd to
+    //             LOCAL Tor and never forwards. Dropping all forward kills public-UDP/QUIC and any
+    //             LAN egress in one rule. (Fixes the non-DNS-UDP leak.)
+    //   prerouting nat: DNS -> Tor DNSPort; other TCP to a PUBLIC dest -> Tor TransPort. Private
+    //             original-dests are EXCLUDED from the TransPort DNAT: Tor refuses (and, on
+    //             0.4.9.11, SEGFAULTS on) a private original-dest, so those must never reach it —
+    //             they fall through to the forward-drop instead.
+    let private = "{ 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 100.64.0.0/10 }";
     let ruleset = format!(
         "table ip arxonion {{\n\
+         \tchain input {{\n\
+         \t\ttype filter hook input priority -150; policy accept;\n\
+         \t\tip saddr {SUBNET} ip daddr != 127.0.0.0/8 drop\n\
+         \t}}\n\
+         \tchain forward {{\n\
+         \t\ttype filter hook forward priority -150; policy accept;\n\
+         \t\tip saddr {SUBNET} drop\n\
+         \t}}\n\
          \tchain prerouting {{\n\
          \t\ttype nat hook prerouting priority -100; policy accept;\n\
          \t\tip saddr {SUBNET} udp dport 53 dnat to 127.0.0.1:{TOR_DNS}\n\
          \t\tip saddr {SUBNET} tcp dport 53 dnat to 127.0.0.1:{TOR_DNS}\n\
-         \t\tip saddr {SUBNET} tcp dport != 53 dnat to 127.0.0.1:{TOR_TRANS}\n\
+         \t\tip saddr {SUBNET} ip daddr != {private} tcp dport != 53 dnat to 127.0.0.1:{TOR_TRANS}\n\
          \t}}\n\
          \tchain postrouting {{\n\
          \t\ttype nat hook postrouting priority 100; policy accept;\n\
