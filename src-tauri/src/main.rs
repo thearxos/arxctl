@@ -358,6 +358,36 @@ fn arxonion_launch_browser(browser: String) -> Result<(), String> {
     spawn_terminal(&format!("pkexec arxonion run {bin}"))
 }
 
+// Run an ARBITRARY app/command inside the Tor-only namespace (the general form of the per-browser
+// launch above). arxonion drops to the invoking user and confines the app to Tor. Uses a terminal
+// + `sudo --preserve-env=DISPLAY,XAUTHORITY` (not pkexec) so a GUI app's X display actually reaches
+// it; the terminal also surfaces any startup error to the user.
+#[tauri::command]
+fn arxonion_run_app(app: String) -> Result<(), String> {
+    let app = app.trim().to_string();
+    if app.is_empty() { return Err("type an app or command to run in isolation".into()); }
+    if app.len() > 200 { return Err("command too long".into()); }
+    // The command is interpolated into a `bash -c` string, so reject every shell metacharacter.
+    // Allow only what appears in real commands, flags, paths and URLs: letters, digits, space,
+    // and . _ - / : = @ + — nothing a shell would interpret (no ; | & $ ` < > ( ) ~ * ? quotes).
+    if !app.chars().all(|c| c.is_ascii_alphanumeric() || " ._:/=@+-".contains(c)) {
+        return Err("only letters, digits, spaces and . _ - / : = @ + are allowed".into());
+    }
+    // Ensure Tor is up FIRST, showing the anond bootstrap loader if it must start — isolation fails
+    // closed without Tor, so rather than error we bring it up and the user watches the same
+    // segmented Tor loader as `anond up`. If Tor's SOCKS port is already listening this is a fast
+    // no-op and the app launches immediately. Then arxonion drops to the user and confines the app
+    // to the Tor-only namespace. sudo --preserve-env carries the X display so a GUI app can show.
+    let script = format!(
+        "if ! ss -ltn 2>/dev/null | grep -q '127.0.0.1:9050'; then \
+           echo '  Tor is not running yet — starting it (isolation needs Tor):'; \
+           anond up --no-advice || exit 1; \
+         fi; \
+         arxonion run {app}"
+    );
+    spawn_terminal(&wrap_close(&format!("sudo --preserve-env=DISPLAY,XAUTHORITY bash -c \"{script}\"")))
+}
+
 // Run an anond action and STREAM its output back into the Privacy panel line by line, so
 // everything the external terminal would print (each fail-closed step, the leak test, the new
 // exit IP) is visible in the app itself. pkexec is used rather than a terminal handoff because
@@ -445,7 +475,7 @@ fn main() {
             system_info, updates_count, updates_breakdown, kernels_list, kernels_manifest, weapons_categories, arsenal_totals, arsenal_totals_refresh, weapons_menu_rebuild, browser_harden, browser_status, services_status,
             weapons_install, weapons_remove, weapons_browse, system_update, sync_databases, kernel_install, kernel_remove,
             anond_status, anond_action, anond_action_streamed, anond_exit_location,
-            arxonion_status, arxonion_toggle, arxonion_shell, arxonion_launch_browser,
+            arxonion_status, arxonion_toggle, arxonion_shell, arxonion_launch_browser, arxonion_run_app,
             perf::perf_status, perf::perf_set_governor, perf::perf_set_epp, perf::perf_set_turbo, perf::perf_apply_profile,
             net::net_status, net::net_ports, net::net_disable_service, net::net_block_port,
             wallpaper::wallpapers_list, wallpaper::wallpaper_set, wallpaper::wallpaper_fetch,

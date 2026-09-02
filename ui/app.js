@@ -377,6 +377,11 @@ async function paintOnion() {
       `<button class="onion-browsers-btn" data-browser="${b}">${b}</button>`).join(' ');
     $$('#onion-browsers .onion-browsers-btn').forEach(btn =>
       btn.addEventListener('click', () => invoke('arxonion_launch_browser', { browser: btn.dataset.browser }).catch(e => alert(String(e)))));
+    // run an arbitrary app/command in the Tor-only namespace
+    const appIn = $('#onion-app'), runBtn = $('#onion-run');
+    const runApp = () => { const v = appIn.value.trim(); if (v) invoke('arxonion_run_app', { app: v }).then(() => appIn.value = '').catch(e => alert(String(e))); };
+    if (runBtn) runBtn.addEventListener('click', runApp);
+    if (appIn) appIn.addEventListener('keydown', e => { if (e.key === 'Enter') runApp(); });
     actions.dataset.filled = '1';
   }
   if (!st.up) { actions.dataset.filled = ''; }

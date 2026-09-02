@@ -173,8 +173,41 @@ fn write_ns_resolv() {
 }
 
 /// Execute `cmd` inside the namespace. Assumes the namespace is already up.
+// The unprivileged user who invoked us: pkexec sets PKEXEC_UID, sudo sets SUDO_USER / SUDO_UID.
+// We run the isolated app AS THEM, never as root.
+fn invoking_user() -> Option<String> {
+    if let Ok(u) = std::env::var("SUDO_USER") {
+        if !u.is_empty() && u != "root" { return Some(u); }
+    }
+    for var in ["PKEXEC_UID", "SUDO_UID"] {
+        if let Ok(uid) = std::env::var(var) {
+            if !uid.is_empty() && uid != "0" {
+                if let Some(name) = uid_to_name(&uid) { return Some(name); }
+            }
+        }
+    }
+    None
+}
+
+fn uid_to_name(uid: &str) -> Option<String> {
+    std::fs::read_to_string("/etc/passwd").ok()?.lines().find_map(|l| {
+        let f: Vec<&str> = l.split(':').collect();
+        (f.len() > 2 && f[2] == uid).then(|| f[0].to_string())
+    })
+}
+
 fn exec_in_ns(cmd: &[String]) -> Result<i32> {
     let mut args: Vec<String> = vec!["netns".into(), "exec".into(), NETNS.into()];
+    // Run the app AS THE INVOKING USER, not root. Root is needed only to enter the namespace; the
+    // program must not run privileged — a GUI app as root refuses or writes root-owned files into
+    // the user's home, and because the Control Center launches us via pkexec (passwordless for
+    // wheel) a root-run arbitrary command would be a passwordless-root-exec surface. `runuser -u`
+    // drops to the user while keeping the caller's environment (so a GUI app's DISPLAY/XAUTHORITY
+    // survive) and fixing HOME/USER. If no unprivileged invoker is recorded (a direct root shell),
+    // fall back to running as root.
+    if let Some(user) = invoking_user() {
+        args.extend(["runuser".into(), "-u".into(), user, "--".into()]);
+    }
     args.extend(cmd.iter().cloned());
     let st = Command::new("ip").args(&args).status().context("exec command in the namespace")?;
     Ok(st.code().unwrap_or(-1))
