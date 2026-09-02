@@ -54,6 +54,17 @@ fn health() -> Health {
     }
 }
 
+/// Is a VPN tunnel already carrying the default route? Detects the common VPN link types
+/// (WireGuard `wg*`, OpenVPN/other `tun*`, `proton*`, `mullvad*`) as the egress device, so the
+/// VPN->Tor advisory is only shown when the user is NOT already tunnelled (e.g. via arxos-vpntor).
+fn vpn_layer_present() -> bool {
+    // the interface the default route currently leaves through
+    let route = util::out("ip", &["-o", "route", "get", "1.1.1.1"]);
+    let dev = route.split_whitespace().skip_while(|t| *t != "dev").nth(1).unwrap_or("");
+    dev.starts_with("tun") || dev.starts_with("wg") || dev.starts_with("proton")
+        || dev.starts_with("mullvad") || dev.starts_with("nordlynx") || dev.starts_with("tap")
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let cmd = args.first().map(String::as_str).unwrap_or("status");
@@ -78,6 +89,20 @@ fn up(args: &[String]) -> Result<()> {
     // session skips re-establishment.
     if health().effective == State::Active {
         println!("anond is already active"); return Ok(());
+    }
+    // VPN->Tor advisory: Tor traffic is recognisable to the ISP (its TLS signature + known guard
+    // IPs), so "this subscriber uses Tor" is itself a metadata leak in a targeted threat model.
+    // Running a VPN FIRST (VPN->Tor) means the ISP only ever sees encrypted VPN traffic and never
+    // learns Tor is in use. We advise it unless a tunnel is already up. Skippable with --no-advice.
+    if !args.iter().any(|a| a == "--no-advice") && !vpn_layer_present() {
+        eprintln!("\n  ADVISORY: no VPN layer detected in front of Tor.");
+        eprintln!("  Your ISP can see that you are USING Tor (not what you do). To hide even that,");
+        eprintln!("  run a VPN first so the ISP sees only encrypted VPN traffic (VPN -> Tor):");
+        eprintln!("      arxos-vpntor            # chain a VPN, then bring Tor up through it");
+        eprintln!("  Use a no-logs, anonymous-payment provider — Mullvad is the reference (cash/");
+        eprintln!("  crypto, account-number only, audited, RAM-only). Then re-run `anond up`.");
+        eprintln!("  Continuing WITHOUT a VPN layer in 3s (Ctrl-C to stop, or pass --no-advice)…\n");
+        std::thread::sleep(std::time::Duration::from_secs(3));
     }
     let tor_uid = util::uid_of("tor")?;
     let want_i2p = args.iter().any(|a| a == "--i2p");
