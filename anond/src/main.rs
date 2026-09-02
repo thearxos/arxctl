@@ -70,7 +70,7 @@ fn health() -> Health {
 
 /// Is a VPN tunnel already carrying the default route? Detects the common VPN link types
 /// (WireGuard `wg*`, OpenVPN/other `tun*`, `proton*`, `mullvad*`) as the egress device, so the
-/// VPN->Tor advisory is only shown when the user is NOT already tunnelled (e.g. via arxos-vpntor).
+/// VPN->Tor advisory is only shown when the user is NOT already tunnelled.
 fn vpn_layer_present() -> bool {
     // the interface the default route currently leaves through
     let route = util::out("ip", &["-o", "route", "get", "1.1.1.1"]);
@@ -111,10 +111,10 @@ fn up(args: &[String]) -> Result<()> {
     if !args.iter().any(|a| a == "--no-advice") && !vpn_layer_present() {
         eprintln!("\n  ADVISORY: no VPN layer detected in front of Tor.");
         eprintln!("  Your ISP can see that you are USING Tor (not what you do). To hide even that,");
-        eprintln!("  run a VPN first so the ISP sees only encrypted VPN traffic (VPN -> Tor):");
-        eprintln!("      arxos-vpntor            # chain a VPN, then bring Tor up through it");
-        eprintln!("  Use a no-logs, anonymous-payment provider — Mullvad is the reference (cash/");
-        eprintln!("  crypto, account-number only, audited, RAM-only). Then re-run `anond up`.");
+        eprintln!("  connect a VPN FIRST so the ISP sees only encrypted VPN traffic, then re-run");
+        eprintln!("  `anond up`. Use the VPN provider's own client with ITS kill-switch on, and a");
+        eprintln!("  no-logs, anonymous-payment provider — Mullvad is the reference (cash/crypto,");
+        eprintln!("  account-number only, audited, RAM-only). (Native VPN chaining is planned.)");
         eprintln!("  Continuing WITHOUT a VPN layer in 3s (Ctrl-C to stop, or pass --no-advice)…\n");
         std::thread::sleep(std::time::Duration::from_secs(3));
     }
