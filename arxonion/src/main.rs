@@ -122,6 +122,67 @@ fn teardown_quiet() {
     sh_quiet("ip", &["link", "del", VETH_HOST]);   // usually auto-removed with the netns; belt-and-braces
 }
 
+/// Does the isolation namespace already exist (a persistent session, brought up by `up`)?
+fn ns_exists() -> bool {
+    Command::new("ip").args(["netns", "list"]).output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).lines().any(|l| l.split_whitespace().next() == Some(NETNS)))
+        .unwrap_or(false)
+}
+
+fn write_ns_resolv() {
+    let _ = std::fs::create_dir_all(format!("/etc/netns/{NETNS}"));
+    let _ = std::fs::write(format!("/etc/netns/{NETNS}/resolv.conf"), format!("nameserver {HOST_IP}\n"));
+}
+
+/// Execute `cmd` inside the namespace. Assumes the namespace is already up.
+fn exec_in_ns(cmd: &[String]) -> Result<i32> {
+    let mut args: Vec<String> = vec!["netns".into(), "exec".into(), NETNS.into()];
+    args.extend(cmd.iter().cloned());
+    let st = Command::new("ip").args(&args).status().context("exec command in the namespace")?;
+    Ok(st.code().unwrap_or(-1))
+}
+
+/// Bring the namespace UP and leave it (persistent mode, for the Privacy toggle). Idempotent.
+fn up() -> Result<i32> {
+    if !is_root() { bail!("arxonion up needs root: sudo arxonion up"); }
+    if !tor_socks_or_trans_up() {
+        bail!("Tor is not running. Start it first (`anond up`). arxonion FAILS CLOSED — it will not\n\
+               route apps clear-net, so it refuses to arm without Tor.");
+    }
+    if ns_exists() { println!("arxonion: isolation is already up."); return Ok(0); }
+    setup().context("bringing the Tor-only namespace up")?;
+    write_ns_resolv();
+    println!("arxonion: isolation UP. Apps launched with `arxonion run <cmd>` (or `arxonion shell`)\n\
+              are confined to Tor; the real interface is not reachable to them. `arxonion down` to stop.");
+    Ok(0)
+}
+
+/// Drop into an isolated shell — every command run in it inherits the namespace. Uses the
+/// user's shell (zsh on ArxOS) via $ARXONION_SHELL/$SHELL, defaulting to zsh.
+fn shell() -> Result<i32> {
+    if !is_root() { bail!("arxonion shell needs root: sudo arxonion shell"); }
+    let persistent = ns_exists();
+    if !persistent { up()?; }
+    write_ns_resolv();
+    let sh = std::env::var("ARXONION_SHELL")
+        .or_else(|_| std::env::var("SHELL"))
+        .unwrap_or_else(|_| "/usr/bin/zsh".into());
+    eprintln!("arxonion: isolated shell — every command here routes through Tor (real IP unreachable).");
+    eprintln!("          type `exit` to leave the isolated shell.");
+    // a marker in the prompt so the user always knows they are isolated (zsh + bash both read this)
+    let code = {
+        let mut c = Command::new("ip");
+        c.args(["netns", "exec", NETNS, &sh]);
+        c.env("ARXONION", "1");
+        c.env("PROMPT", "%F{208}🧅 arxonion%f %~ %# ");   // zsh
+        c.env("PS1", "\\[\\e[38;5;208m\\]🧅 arxonion\\[\\e[0m\\] \\w \\$ "); // bash fallback
+        c.status().context("start isolated shell")?.code().unwrap_or(-1)
+    };
+    // if WE brought it up just for this shell (not a persistent toggle session), tear it down.
+    if !persistent { teardown_quiet(); }
+    Ok(code)
+}
+
 fn run(cmd: &[String]) -> Result<i32> {
     if !is_root() { bail!("arxonion run needs root (it creates a network namespace + nft rules): sudo arxonion run <cmd>"); }
     if cmd.is_empty() { bail!("usage: arxonion run <command> [args...]"); }
@@ -129,35 +190,31 @@ fn run(cmd: &[String]) -> Result<i32> {
         bail!("Tor is not running (no TransPort on 9040 / SOCKS on 9050). Start it first: `anond up`.\n\
                arxonion FAILS CLOSED — it will not run an app clear-net, so it refuses rather than leak.");
     }
-    setup().context("building the Tor-only namespace")?;
-    // ensure teardown happens no matter how the child exits
-    struct Guard;
-    impl Drop for Guard { fn drop(&mut self) { teardown_quiet(); } }
-    let _g = Guard;
+    // Reuse a persistent namespace (brought up by `arxonion up` for a toggle session) if one
+    // exists; otherwise create an ephemeral one and tear it down when the command exits. Only
+    // an ephemeral namespace is torn down here — a persistent toggle session outlives the command.
+    let persistent = ns_exists();
+    if !persistent { setup().context("building the Tor-only namespace")?; }
+    struct Guard(bool);
+    impl Drop for Guard { fn drop(&mut self) { if !self.0 { teardown_quiet(); } } }
+    let _g = Guard(persistent);
 
-    // resolv.conf INSIDE the namespace must point at the GATEWAY (the veth host IP), NOT
-    // 127.0.0.1: inside the namespace 127.0.0.1 is the namespace's own loopback, so a query
-    // there never leaves to reach the host's DNS DNAT. Sending to the gateway (10.99.71.1:53)
-    // egresses onto the host veth, where the nft rule DNATs port 53 to Tor's DNSPort. `ip netns
-    // exec` bind-mounts /etc/netns/<ns>/resolv.conf over /etc/resolv.conf for the command.
-    let _ = std::fs::create_dir_all(format!("/etc/netns/{NETNS}"));
-    let _ = std::fs::write(format!("/etc/netns/{NETNS}/resolv.conf"), format!("nameserver {HOST_IP}\n"));
+    write_ns_resolv(); // resolv.conf -> the veth gateway (see write_ns_resolv for why not 127.0.0.1)
 
     // banner to STDERR so it never contaminates the isolated command's own stdout (a caller
     // parsing the command's output must see only that output).
     eprintln!("arxonion: '{}' is confined to a Tor-only namespace (real interface not present here).", cmd[0]);
-    let mut args: Vec<String> = vec!["netns".into(), "exec".into(), NETNS.into()];
-    args.extend(cmd.iter().cloned());
-    let st = Command::new("ip").args(&args).status().context("exec command in the namespace")?;
-    Ok(st.code().unwrap_or(-1))
-    // Guard drops here -> teardown.
+    exec_in_ns(cmd)
+    // Guard drops here -> teardown iff ephemeral.
 }
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let r = match args.first().map(String::as_str) {
         Some("run") => run(&args[1..].to_vec()),
-        Some("down") | Some("clean") => { if is_root() { teardown_quiet(); println!("arxonion: namespace torn down."); Ok(0) } else { eprintln!("arxonion down needs root"); Ok(1) } }
+        Some("up") | Some("on") => up(),
+        Some("shell") => shell(),
+        Some("down") | Some("clean") | Some("off") => { if is_root() { teardown_quiet(); println!("arxonion: isolation torn down."); Ok(0) } else { eprintln!("arxonion down needs root"); Ok(1) } }
         Some("status") => {
             let up = Command::new("ip").args(["netns", "list"]).output()
                 .map(|o| String::from_utf8_lossy(&o.stdout).contains(NETNS)).unwrap_or(false);
@@ -165,10 +222,13 @@ fn main() {
             println!("Tor available: {}", if tor_socks_or_trans_up() { "yes" } else { "no (arxonion would refuse to run)" });
             Ok(0)
         }
-        _ => { eprintln!("arxonion — run an app in a Tor-only network namespace (real IP not reachable to the app)\n\
-                          usage:\n  sudo arxonion run <command> [args...]   run a command Tor-isolated\n\
-                          \t  sudo arxonion down                      force-clean the namespace\n\
-                          \t       arxonion status                   is it set up / is Tor available"); Ok(2) }
+        _ => { eprintln!("arxonion — run apps in a Tor-only network namespace (real IP unreachable to them)\n\
+                          usage:\n\
+                          \t  sudo arxonion run <command> [args...]   run one command Tor-isolated\n\
+                          \t  sudo arxonion shell                     an isolated shell (all commands in it route via Tor)\n\
+                          \t  sudo arxonion up                        keep isolation up (persistent, for the Privacy toggle)\n\
+                          \t  sudo arxonion down                      tear isolation down\n\
+                          \t       arxonion status                   is it up / is Tor available"); Ok(2) }
     };
     match r { Ok(code) => std::process::exit(code), Err(e) => { eprintln!("arxonion: {e:#}"); std::process::exit(1); } }
 }
