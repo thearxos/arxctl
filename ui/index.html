@@ -204,14 +204,15 @@
           compromised</b> (a browser exploit, malware). This is the structural guarantee, applied
           per-app so ArxOS stays a daily driver.
         </p>
+        <div class="onion-runapp">
+          <input type="text" id="onion-app" placeholder="app or command, e.g. firefox" spellcheck="false" autocomplete="off" />
+          <button class="btn-p sm" id="onion-run">Run in isolation</button>
+        </div>
+        <div class="dim onion-runapp-hint">Starts Tor if it is not running yet (you will see the bootstrap loader), then launches the app in the Tor-only namespace as you.</div>
         <div class="onion-actions" id="onion-actions" hidden>
           <button class="btn-p sm" id="onion-shell">Open isolated terminal</button>
           <span class="dim" id="onion-browsers-label" style="font-size:.8rem"></span>
           <span id="onion-browsers"></span>
-          <div class="onion-runapp">
-            <input type="text" id="onion-app" placeholder="app or command, e.g. firefox" spellcheck="false" autocomplete="off" />
-            <button class="btn-p sm" id="onion-run">Run in isolation</button>
-          </div>
         </div>
         <div class="onion-boundary">
           <b>What this does and does not do — honestly.</b> Everything you launch <em>from</em> the

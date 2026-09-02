@@ -368,6 +368,16 @@ async function paintOnion() {
   toggle.disabled = !st.tor_available && !st.up;   // cannot isolate without Tor (fails closed)
   toggle.title = st.tor_available ? 'Isolate apps you launch into a Tor-only network namespace'
                                   : 'Start anond/Tor first — isolation needs Tor and fails closed without it';
+  // Run-in-isolation is available FROM COLD: `arxonion run` makes its own ephemeral namespace and
+  // the command starts Tor first (with the bootstrap loader) if it is not up. So wire it once,
+  // regardless of whether the persistent namespace toggle is on.
+  const appIn = $('#onion-app'), runBtn = $('#onion-run');
+  if (runBtn && !runBtn.dataset.wired) {
+    const runApp = () => { const v = appIn.value.trim(); if (v) invoke('arxonion_run_app', { app: v }).then(() => appIn.value = '').catch(e => alert(String(e))); };
+    runBtn.addEventListener('click', runApp);
+    appIn.addEventListener('keydown', e => { if (e.key === 'Enter') runApp(); });
+    runBtn.dataset.wired = '1';
+  }
   actions.hidden = !st.up;
   if (st.up && !actions.dataset.filled) {
     // populate the per-browser isolated-launch buttons from the detected set
@@ -377,11 +387,6 @@ async function paintOnion() {
       `<button class="onion-browsers-btn" data-browser="${b}">${b}</button>`).join(' ');
     $$('#onion-browsers .onion-browsers-btn').forEach(btn =>
       btn.addEventListener('click', () => invoke('arxonion_launch_browser', { browser: btn.dataset.browser }).catch(e => alert(String(e)))));
-    // run an arbitrary app/command in the Tor-only namespace
-    const appIn = $('#onion-app'), runBtn = $('#onion-run');
-    const runApp = () => { const v = appIn.value.trim(); if (v) invoke('arxonion_run_app', { app: v }).then(() => appIn.value = '').catch(e => alert(String(e))); };
-    if (runBtn) runBtn.addEventListener('click', runApp);
-    if (appIn) appIn.addEventListener('keydown', e => { if (e.key === 'Enter') runApp(); });
     actions.dataset.filled = '1';
   }
   if (!st.up) { actions.dataset.filled = ''; }
