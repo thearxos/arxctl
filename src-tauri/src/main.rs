@@ -144,6 +144,23 @@ fn updates_list() -> serde_json::Value {
 }
 
 #[derive(Serialize)]
+struct NewsItem { date: String, tag: String, title: String, body: String }
+
+// The ArxOS news feed for the dashboard: what's new + improved, curated in the public arxos-kernels
+// repo (the same metadata source the Kernels panel reads). Fetched through Tor when it's up (the
+// fetch is ArxOS-identifying), like the kernel manifest. Empty on no network — the card just hides.
+#[tauri::command]
+fn news_list() -> Vec<NewsItem> {
+    let raw = run_private_curl(&["-fsSL", "--max-time", "20",
+        "https://raw.githubusercontent.com/thearxos/arxos-kernels/main/news.json"]);
+    let v: serde_json::Value = serde_json::from_str(&raw).unwrap_or(serde_json::Value::Null);
+    let s = |x: &serde_json::Value, k: &str| x.get(k).and_then(|y| y.as_str()).unwrap_or("").to_string();
+    v.get("items").and_then(|x| x.as_array()).map(|a| a.iter().map(|it| NewsItem {
+        date: s(it, "date"), tag: s(it, "tag"), title: s(it, "title"), body: s(it, "body"),
+    }).collect()).unwrap_or_default()
+}
+
+#[derive(Serialize)]
 struct Kernel { flavor: String, version: String, status: String, role: String, running: bool }
 
 #[tauri::command]
@@ -529,7 +546,7 @@ fn kernel_remove(flavor: String) -> Result<(), String> {
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
-            system_info, storage_info, updates_count, updates_breakdown, updates_list, kernels_list, kernels_manifest, weapons_categories, arsenal_totals, arsenal_totals_refresh, weapons_menu_rebuild, browser_harden, browser_status, services_status,
+            system_info, storage_info, updates_count, updates_breakdown, updates_list, news_list, kernels_list, kernels_manifest, weapons_categories, arsenal_totals, arsenal_totals_refresh, weapons_menu_rebuild, browser_harden, browser_status, services_status,
             weapons_install, weapons_remove, weapons_browse, system_update, sync_databases, kernel_install, kernel_remove,
             anond_status, anond_action, anond_action_streamed, anond_exit_location,
             arxonion_status, arxonion_toggle, arxonion_shell, arxonion_launch_browser, arxonion_run_app,

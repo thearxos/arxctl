@@ -42,7 +42,22 @@ loaders.dashboard = async () => {
   invoke('updates_count').then(n => $('#d-updates').textContent = n);
   paintDashAnon();
   paintDashStorage();
+  paintDashNews();
 };
+
+// ArxOS news feed — what's new + improved, from the public metadata repo. Hidden if unreachable.
+async function paintDashNews() {
+  let items; try { items = await invoke('news_list'); } catch { return; }
+  const card = $('#d-news-card'); if (!card) return;
+  if (!items || !items.length) { card.hidden = true; return; }
+  card.hidden = false;
+  $('#d-news-updated').textContent = items[0].date || '';
+  $('#d-news-list').innerHTML = items.slice(0, 5).map(n => `
+    <div class="news-item">
+      <div class="news-head"><span class="news-tag">${wifiEsc(n.tag || '')}</span><b class="news-title">${wifiEsc(n.title || '')}</b><span class="grow"></span><span class="news-date mono dim">${wifiEsc(n.date || '')}</span></div>
+      <p class="news-body dim">${wifiEsc(n.body || '')}</p>
+    </div>`).join('');
+}
 
 // Anonymity at a glance on the dashboard: is the system exiting through Tor, and how to turn it off.
 async function paintDashAnon() {
