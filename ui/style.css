@@ -400,6 +400,10 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opa
 
 /* ---- arxonion app-isolation block (Privacy panel) ---- */
 .panel-note{font-size:.86rem;color:var(--muted);line-height:1.55}
+.toggle-help{margin-top:12px;font-size:.8rem;padding:9px 12px;border-radius:var(--r-sm);
+  background:rgba(255,255,255,.03);border:1px solid var(--glass-br)}
+.toggle-help code{font-family:var(--mono,monospace);font-size:.92em;background:rgba(0,0,0,.28);padding:1px 5px;border-radius:4px}
+.toggle-help b{color:var(--fg)}
 .onion-card{margin-top:14px}
 .onion-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .onion-title{font-size:1.05rem;font-weight:700;margin-top:2px}

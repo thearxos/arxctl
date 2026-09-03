@@ -173,7 +173,7 @@
         </div>
         <div class="grow"></div>
         <div class="anon-actions">
-          <button class="i2p-toggle" id="anon-i2p" role="switch" aria-checked="false" title="Add the i2p overlay alongside Tor">
+          <button class="i2p-toggle" id="anon-i2p" role="switch" aria-checked="false" title="Add the i2p overlay alongside Tor — only needed to reach .i2p eepsites">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 3.2l5.5 3.2v6.2L12 17.8 6.5 14.6V8.4L12 5.2zm0 2.6L8.8 9.6v3.6L12 15l3.2-1.8V9.6L12 7.8z"/></svg>
             <span>i2p</span>
           </button>
@@ -181,6 +181,11 @@
           <button class="btn-g" id="anon-down">Stop</button>
         </div>
       </div>
+      <p class="panel-note toggle-help">
+        <b>Go anonymous</b> routes your whole system through Tor — this is the everyday privacy switch.
+        The <b>i2p</b> toggle adds the i2p network alongside Tor, needed only to open <code>.i2p</code>
+        eepsites; leave it off for normal anonymous browsing.
+      </p>
       <div class="anon-row">
         <button class="btn-g" id="anon-verify">Verify (leak test)</button>
         <button class="btn-g" id="anon-newid">New identity</button>
@@ -193,9 +198,9 @@
             <span class="k">App isolation · arxonion</span>
             <div class="onion-title">Run apps in a Tor-only namespace</div>
           </div>
-          <button class="i2p-toggle" id="onion-toggle" role="switch" aria-checked="false" title="Isolate apps you launch into a Tor-only network namespace">
+          <button class="i2p-toggle" id="onion-toggle" role="switch" aria-checked="false" title="Keep a shared Tor-only namespace running for repeated isolated launches (and unlock the terminal + one-click browser buttons)">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 3.2l5.5 3.2v6.2L12 17.8 6.5 14.6V8.4L12 5.2z"/></svg>
-            <span>isolate</span>
+            <span>keep on</span>
           </button>
         </div>
         <p class="panel-note" style="margin-top:10px">
@@ -208,7 +213,12 @@
           <input type="text" id="onion-app" placeholder="app or command, e.g. firefox" spellcheck="false" autocomplete="off" />
           <button class="btn-p sm" id="onion-run">Run in isolation</button>
         </div>
-        <div class="dim onion-runapp-hint">Starts Tor if it is not running yet (you will see the bootstrap loader), then launches the app in the Tor-only namespace as you.</div>
+        <div class="dim onion-runapp-hint">Type an app and run it once in the Tor-only namespace, as you. Starts Tor first if needed (you will see the bootstrap loader). Use this for a one-off.</div>
+        <p class="panel-note toggle-help">
+          The <b>keep on</b> switch is optional: it keeps one shared isolated session running so
+          repeated launches reuse it, and unlocks the <b>isolated terminal</b> and one-click
+          <b>browser</b> buttons below. Turn it off and the shared session is torn down.
+        </p>
         <div class="onion-actions" id="onion-actions" hidden>
           <button class="btn-p sm" id="onion-shell">Open isolated terminal</button>
           <span class="dim" id="onion-browsers-label" style="font-size:.8rem"></span>
