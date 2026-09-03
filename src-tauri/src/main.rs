@@ -527,6 +527,7 @@ fn main() {
             arxonion_status, arxonion_toggle, arxonion_shell, arxonion_launch_browser, arxonion_run_app,
             perf::perf_status, perf::perf_set_governor, perf::perf_set_epp, perf::perf_set_turbo, perf::perf_apply_profile,
             net::net_status, net::net_ports, net::net_disable_service, net::net_block_port,
+            net::net_iface_set, net::net_wifi_state, net::net_wifi_radio, net::net_wifi_scan, net::net_wifi_connect,
             wallpaper::wallpapers_list, wallpaper::wallpaper_set, wallpaper::wallpaper_fetch,
             wallpaper::wallpaper_cycle_status, wallpaper::wallpaper_cycle_set,
             vm_tools::vm_status, vm_tools::vm_setup

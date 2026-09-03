@@ -287,6 +287,13 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opa
 .net-head .link{font-size:.66rem;letter-spacing:.1em;text-transform:uppercase;padding:3px 9px;border-radius:20px;font-weight:600}
 .link.up{background:rgba(78,195,122,.14);color:var(--ok);border:1px solid rgba(78,195,122,.4)}
 .link.down{background:rgba(255,255,255,.06);color:var(--dim);border:1px solid var(--faint)}
+.net-toggle{margin-left:6px}
+/* Wi-Fi */
+.wifi-list{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+.wifi-row{display:flex;align-items:center;gap:10px;padding:11px 15px}
+.wifi-ssid b{color:var(--fg);font-size:.92rem}
+.wifi-conn{color:var(--ok);font-size:.66rem;text-transform:uppercase;letter-spacing:.08em;margin-left:6px}
+.wifi-meta{font-size:.78rem}
 .net-flows{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 .flow{display:flex;flex-direction:column;gap:7px}
 .flow-top{display:flex;align-items:baseline;gap:8px}

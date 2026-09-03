@@ -292,6 +292,8 @@ let netTimer = null;
 loaders.network = async () => {
   await paintNet();
   paintPorts();               // ports change rarely: load once per open, refresh after an action
+  paintWifi();
+  wireWifiOnce();
   clearInterval(netTimer);
   netTimer = setInterval(() => { if ($('#p-network').classList.contains('active')) paintNet(); else clearInterval(netTimer); }, 1000);
 };
@@ -352,16 +354,20 @@ async function paintNet() {
     ifs.forEach(i => {
       const c = el('div', 'card net-if');
       c.dataset.if = i.name;
+      const canToggle = i.kind === 'ethernet' || i.kind === 'wireless';
       c.innerHTML = `<div class="net-head">
           <span class="nif">${i.name}</span>
           <span class="meta"><span class="knd">${i.kind}</span>${i.ip ? `<span class="sep">•</span><span class="ip mono">${i.ip}</span>` : ''}${i.link_mbps > 0 ? `<span class="sep">•</span><span>${i.link_mbps >= 1000 ? (i.link_mbps/1000)+' Gb/s link' : i.link_mbps+' Mb/s link'}</span>` : ''}</span>
           <span class="grow"></span><span class="link ${i.up ? 'up' : 'down'}">${i.up ? 'connected' : 'down'}</span>
+          ${canToggle ? `<button class="btn-g sm net-toggle" data-primary="${i.primary ? 1 : 0}">${i.up ? 'Turn off' : 'Turn on'}</button>` : ''}
         </div>
         <div class="net-flows">
           <div class="flow dn"><div class="flow-top"><span class="arrow">↓</span><span class="rate">0</span><span class="unit">B/s</span><span class="grow"></span><span class="tot">↓ 0</span></div><div class="fbar"><i></i></div></div>
           <div class="flow up"><div class="flow-top"><span class="arrow">↑</span><span class="rate">0</span><span class="unit">B/s</span><span class="grow"></span><span class="tot">↑ 0</span></div><div class="fbar"><i></i></div></div>
         </div>`;
       box.appendChild(c);
+      const tb = c.querySelector('.net-toggle');
+      if (tb) tb.addEventListener('click', () => doIfaceToggle(i.name, tb));
     });
   }
   // live values
@@ -369,6 +375,8 @@ async function paintNet() {
     const c = box.querySelector(`.net-if[data-if="${CSS.escape(i.name)}"]`); if (!c) return;
     c.querySelector('.link').className = 'link ' + (i.up ? 'up' : 'down');
     c.querySelector('.link').textContent = i.up ? 'connected' : 'down';
+    const tb = c.querySelector('.net-toggle');
+    if (tb && !tb.disabled) { tb.textContent = i.up ? 'Turn off' : 'Turn on'; tb.dataset.primary = i.primary ? 1 : 0; }
     const dn = c.querySelector('.flow.dn'), up = c.querySelector('.flow.up');
     const [dr, du] = fmtRate(i.rx_bps), [ur, uu] = fmtRate(i.tx_bps);
     dn.querySelector('.rate').textContent = dr; dn.querySelector('.unit').textContent = du;
@@ -380,6 +388,71 @@ async function paintNet() {
     dn.querySelector('.fbar i').style.width = Math.min(100, i.rx_bps / peak * 100) + '%';
     up.querySelector('.fbar i').style.width = Math.min(100, i.tx_bps / peak * 100) + '%';
   });
+}
+
+// Turn an interface on/off. Downing the interface that carries the default route drops the box off
+// the network (and cuts a remote session), so we confirm loudly for the primary one.
+async function doIfaceToggle(name, btn) {
+  const goingUp = btn.textContent.trim() === 'Turn on';
+  if (!goingUp && btn.dataset.primary === '1') {
+    if (!confirm(`${name} carries this machine's default route. Turning it off drops the box off the network right now (and would cut any remote/SSH session). Continue?`)) return;
+  }
+  btn.disabled = true; btn.textContent = goingUp ? 'Turning on…' : 'Turning off…';
+  try { await invoke('net_iface_set', { name, up: goingUp }); }
+  catch (e) { alert('Failed: ' + e); }
+  btn.disabled = false;
+  setTimeout(paintNet, 900);   // let the link settle, then reflect the new state
+}
+
+// ---- Wi-Fi ----
+const wifiEsc = s => { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; };
+async function paintWifi() {
+  let w; try { w = await invoke('net_wifi_state'); } catch { return; }
+  $('#wifi-section').hidden = !w.available;   // only shown when the box has a Wi-Fi device
+  if (!w.available) return;
+  const radio = $('#wifi-radio');
+  radio.setAttribute('aria-checked', w.radio_on ? 'true' : 'false');
+  radio.disabled = !w.nm;
+  radio.title = w.nm ? 'Wi-Fi radio on/off' : 'NetworkManager not active — Wi-Fi controls unavailable';
+  $('#wifi-scan').disabled = !w.radio_on || !w.nm;
+  if (!w.radio_on) $('#wifi-list').innerHTML = '<div class="soon">Radio is off. Turn it on to scan.</div>';
+}
+let wifiWired = false;
+function wireWifiOnce() {
+  if (wifiWired) return; wifiWired = true;
+  $('#wifi-radio').addEventListener('click', async () => {
+    const on = $('#wifi-radio').getAttribute('aria-checked') === 'true';
+    try { await invoke('net_wifi_radio', { on: !on }); } catch (e) { alert('Failed: ' + e); }
+    setTimeout(paintWifi, 700);
+  });
+  $('#wifi-scan').addEventListener('click', scanWifi);
+}
+async function scanWifi() {
+  const list = $('#wifi-list'); list.innerHTML = '<div class="soon">Scanning…</div>';
+  let nets; try { nets = await invoke('net_wifi_scan'); } catch { list.innerHTML = '<div class="soon">Scan failed.</div>'; return; }
+  if (!nets.length) { list.innerHTML = '<div class="soon">No networks found.</div>'; return; }
+  list.innerHTML = '';
+  nets.forEach(n => {
+    const open = !n.security || n.security === 'open';
+    const row = el('div', 'card wifi-row');
+    row.innerHTML = `<span class="wifi-ssid"><b>${wifiEsc(n.ssid)}</b>${n.active ? ' <span class="wifi-conn">connected</span>' : ''}</span>
+      <span class="wifi-meta mono dim">${n.signal}% · ${open ? 'open' : wifiEsc(n.security)}</span><span class="grow"></span>`;
+    if (!n.active) {
+      const b = el('button', 'btn-p sm', 'Connect');
+      b.addEventListener('click', () => connectWifi(n, b));
+      row.appendChild(b);
+    }
+    list.appendChild(row);
+  });
+}
+async function connectWifi(n, btn) {
+  const open = !n.security || n.security === 'open';
+  let pw = '';
+  if (!open) { pw = prompt(`Password for "${n.ssid}":`); if (pw === null) return; }
+  btn.disabled = true; btn.textContent = 'Connecting…';
+  try { await invoke('net_wifi_connect', { ssid: n.ssid, password: pw }); }
+  catch (e) { alert('Failed: ' + e); btn.disabled = false; btn.textContent = 'Connect'; return; }
+  setTimeout(scanWifi, 1600);
 }
 
 // ---- privacy (anond, the anonymity daemon) ----

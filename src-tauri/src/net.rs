@@ -19,6 +19,7 @@ pub struct Iface {
     pub tx_total: u64,  // bytes sent since boot
     pub link_mbps: i64, // negotiated link speed in Mbit/s, -1 if the kernel won't say
     pub kind: String,   // ethernet | wireless | virtual
+    pub primary: bool,  // carries the default route (disabling it cuts the session — the UI warns)
 }
 
 struct Prev { rx: u64, tx: u64, t: Instant }
@@ -28,6 +29,15 @@ fn state() -> &'static Mutex<HashMap<String, Prev>> {
 }
 
 fn rd(p: &str) -> String { std::fs::read_to_string(p).unwrap_or_default().trim().to_string() }
+
+// The interface carrying the default route (Destination 00000000 in /proc/net/route). Disabling
+// THIS one drops the box off the network, so the UI warns before toggling it. No subprocess.
+fn default_iface() -> String {
+    std::fs::read_to_string("/proc/net/route").unwrap_or_default().lines().skip(1)
+        .find_map(|l| { let f: Vec<&str> = l.split_whitespace().collect();
+            (f.len() > 1 && f[1] == "00000000").then(|| f[0].to_string()) })
+        .unwrap_or_default()
+}
 
 // iface -> first IPv4, from `ip -o -4 addr show`
 fn ipv4_map() -> HashMap<String, String> {
@@ -55,6 +65,7 @@ fn kind_of(name: &str) -> String {
 pub fn net_status() -> Vec<Iface> {
     let dev = rd("/proc/net/dev");
     let ips = ipv4_map();
+    let primary = default_iface();
     let now = Instant::now();
     let mut prev = state().lock().unwrap();
     let mut out = Vec::new();
@@ -81,6 +92,7 @@ pub fn net_status() -> Vec<Iface> {
         out.push(Iface {
             ip: ips.get(&name).cloned().unwrap_or_default(),
             kind: kind_of(&name),
+            primary: name == primary,
             name, up, rx_bps, tx_bps, rx_total: rx, tx_total: tx, link_mbps,
         });
     }
@@ -188,4 +200,110 @@ pub fn net_block_port(proto: String, port: u32) -> Result<(), String> {
     let ok = std::process::Command::new("pkexec").args(["bash", "-c", &script])
         .status().map(|s| s.success()).unwrap_or(false);
     if ok { Ok(()) } else { Err(format!("could not block {proto}/{port}")) }
+}
+
+// ---- interface + Wi-Fi controls (feature: turn interfaces on/off, manage Wi-Fi) ----
+// All state-changing actions go through pkexec (the GUI never holds root); scans/reads do not.
+
+fn have(bin: &str) -> bool {
+    std::process::Command::new("sh").arg("-c").arg(format!("command -v {bin}"))
+        .stdout(std::process::Stdio::null()).status().map(|s| s.success()).unwrap_or(false)
+}
+fn cmd_out(bin: &str, args: &[&str]) -> String {
+    std::process::Command::new(bin).args(args).output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).to_string()).unwrap_or_default()
+}
+fn safe_iface(n: &str) -> bool {
+    !n.is_empty() && n.len() <= 32
+        && n.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'@'))
+}
+
+/// Bring an interface up or down. nmcli manages the device cleanly (down = disconnect, and it will
+/// not silently auto-reconnect the way a bare `ip link down` gets undone by NetworkManager); fall
+/// back to `ip link set` on a box without NM. Privileged -> pkexec.
+#[tauri::command]
+pub fn net_iface_set(name: String, up: bool) -> Result<(), String> {
+    if !safe_iface(&name) { return Err("invalid interface name".into()); }
+    let ok = if have("nmcli") {
+        std::process::Command::new("pkexec")
+            .args(["nmcli", "device", if up { "connect" } else { "disconnect" }, &name])
+            .status().map(|s| s.success()).unwrap_or(false)
+    } else {
+        std::process::Command::new("pkexec")
+            .args(["ip", "link", "set", &name, if up { "up" } else { "down" }])
+            .status().map(|s| s.success()).unwrap_or(false)
+    };
+    if ok { Ok(()) } else { Err(format!("could not bring {name} {}", if up { "up" } else { "down" })) }
+}
+
+#[derive(Serialize)]
+pub struct WifiNet { ssid: String, signal: u8, security: String, active: bool }
+#[derive(Serialize)]
+pub struct WifiState { available: bool, radio_on: bool, nm: bool }
+
+/// Is there a Wi-Fi device, is the radio on, and is NetworkManager driving it (needed for scan/
+/// connect). Read-only.
+#[tauri::command]
+pub fn net_wifi_state() -> WifiState {
+    let available = std::fs::read_dir("/sys/class/net").map(|rd| rd.filter_map(|e| e.ok())
+        .any(|e| e.path().join("wireless").exists())).unwrap_or(false);
+    let nm = have("nmcli");
+    let radio_on = nm && cmd_out("nmcli", &["radio", "wifi"]).trim() == "enabled";
+    WifiState { available, radio_on, nm }
+}
+
+/// Turn the Wi-Fi radio on/off (nmcli radio wifi). Privileged.
+#[tauri::command]
+pub fn net_wifi_radio(on: bool) -> Result<(), String> {
+    let ok = std::process::Command::new("pkexec")
+        .args(["nmcli", "radio", "wifi", if on { "on" } else { "off" }])
+        .status().map(|s| s.success()).unwrap_or(false);
+    if ok { Ok(()) } else { Err("could not toggle the Wi-Fi radio".into()) }
+}
+
+/// Scan for Wi-Fi networks (nmcli terse). Read-only. Deduped by SSID (strongest signal kept),
+/// strongest first. nmcli -t escapes ':' inside a value as '\:', so split on unescaped colons.
+#[tauri::command]
+pub fn net_wifi_scan() -> Vec<WifiNet> {
+    if !have("nmcli") { return Vec::new(); }
+    let out = cmd_out("nmcli", &["-t", "-f", "IN-USE,SSID,SIGNAL,SECURITY", "device", "wifi", "list"]);
+    let mut best: std::collections::HashMap<String, WifiNet> = std::collections::HashMap::new();
+    for line in out.lines() {
+        // split on ':' that is not preceded by '\', then unescape '\:' -> ':'
+        let mut fields: Vec<String> = Vec::new();
+        let mut cur = String::new();
+        let mut chars = line.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c == '\\' { if let Some(&n) = chars.peek() { cur.push(n); chars.next(); } }
+            else if c == ':' { fields.push(std::mem::take(&mut cur)); }
+            else { cur.push(c); }
+        }
+        fields.push(cur);
+        if fields.len() < 4 { continue; }
+        let ssid = fields[1].trim().to_string();
+        if ssid.is_empty() { continue; }               // skip hidden/blank SSIDs
+        let signal = fields[2].trim().parse::<u8>().unwrap_or(0);
+        let security = { let s = fields[3].trim(); if s.is_empty() { "open".into() } else { s.to_string() } };
+        let active = fields[0].trim() == "*";
+        let e = best.entry(ssid.clone()).or_insert(WifiNet { ssid, signal, security: security.clone(), active });
+        if signal > e.signal { e.signal = signal; e.security = security; }
+        if active { e.active = true; }
+    }
+    let mut v: Vec<WifiNet> = best.into_values().collect();
+    v.sort_by(|a, b| b.active.cmp(&a.active).then(b.signal.cmp(&a.signal)));
+    v
+}
+
+/// Connect to a Wi-Fi network (nmcli device wifi connect). Password optional (open networks).
+/// Privileged. The SSID/password are passed as argv (not a shell string), so no injection.
+#[tauri::command]
+pub fn net_wifi_connect(ssid: String, password: String) -> Result<(), String> {
+    if ssid.is_empty() || ssid.len() > 64 { return Err("invalid SSID".into()); }
+    if password.len() > 128 { return Err("password too long".into()); }
+    let mut args: Vec<String> = vec!["nmcli".into(), "device".into(), "wifi".into(), "connect".into(), ssid];
+    if !password.is_empty() { args.push("password".into()); args.push(password); }
+    let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    let ok = std::process::Command::new("pkexec").args(&refs)
+        .status().map(|s| s.success()).unwrap_or(false);
+    if ok { Ok(()) } else { Err("could not connect (wrong password, or out of range?)".into()) }
 }

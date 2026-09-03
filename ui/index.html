@@ -137,6 +137,15 @@
     <section class="panel" id="p-network">
       <header class="phead"><h1 class="pf">Network</h1><p>Live throughput per connected interface, measured straight from the kernel's byte counters — real, to the byte, every second.</p></header>
       <div class="net-list" id="net-list"><div class="soon">Reading interfaces…</div></div>
+
+      <div id="wifi-section" hidden>
+        <div class="weap-sub" style="margin-top:28px">Wi-Fi
+          <button class="i2p-toggle" id="wifi-radio" role="switch" aria-checked="false" title="Wi-Fi radio on/off" style="margin-left:12px"><span>radio</span></button>
+          <button class="btn-g sm" id="wifi-scan" style="margin-left:8px">Scan</button>
+        </div>
+        <div class="wifi-list" id="wifi-list"><div class="soon">Turn the radio on, then Scan.</div></div>
+      </div>
+
       <div class="weap-sub" style="margin-top:28px">Listening ports &amp; services</div>
       <p class="ports-lead">Everything accepting connections on this machine. Anything <b>exposed</b> is reachable from the network — close what you do not need.</p>
       <div class="ports" id="net-ports"><div class="soon">Scanning ports…</div></div>
