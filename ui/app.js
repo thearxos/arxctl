@@ -88,13 +88,25 @@ async function paintDashStorage() {
 // demand, and automatically while this panel stays open — so it never goes stale after
 // an update finishes in its handoff terminal without the user having to guess and reopen.
 let updPollTimer = null;
+const updSrcLabel = { pacman: 'official', aur: 'AUR', tools: 'tool' };
 async function paintUpdateCounts() {
-  let b; try { b = await invoke('updates_breakdown'); } catch { return; }
-  $('#upd-pacman').textContent = b.pacman ?? 0;
-  $('#upd-aur').textContent = b.aur ?? 0;
-  $('#upd-tools').textContent = b.tools ?? 0;
-  $('#upd-total').textContent = b.total ?? 0;
+  // one live call gives BOTH the counts and the named package list, so they never disagree.
+  let l; try { l = await invoke('updates_list'); } catch { return; }
+  $('#upd-pacman').textContent = l.pacman ?? 0;
+  $('#upd-aur').textContent = l.aur ?? 0;
+  $('#upd-tools').textContent = l.tools ?? 0;
+  $('#upd-total').textContent = l.total ?? 0;
   $('#upd-live').textContent = 'Last checked ' + new Date().toLocaleTimeString();
+  const box = $('#upd-pkgs'); if (!box) return;
+  const pkgs = l.packages || [];
+  if (!pkgs.length) { box.innerHTML = '<div class="soon">Everything is up to date.</div>'; return; }
+  box.innerHTML = `<div class="upd-pkgs-head">${pkgs.length} package${pkgs.length > 1 ? 's' : ''} to update</div>` +
+    pkgs.map(p => `<div class="upd-pkg">
+        <span class="upd-pkg-src src-${p.source}">${updSrcLabel[p.source] || p.source}</span>
+        <b class="upd-pkg-name">${wifiEsc(p.name)}</b>
+        <span class="grow"></span>
+        <span class="upd-pkg-ver mono">${wifiEsc(p.old)} <span class="arrow">→</span> ${wifiEsc(p.new)}</span>
+      </div>`).join('');
 }
 loaders.update = () => {
   paintUpdateCounts();

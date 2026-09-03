@@ -377,6 +377,18 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opa
 .upd-stat.upd-total b{color:var(--accent-hi)}
 .upd-actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 .upd-live{margin-top:12px;font-size:.78rem}
+/* the named list of packages to update */
+.upd-pkgs{margin-top:16px;display:flex;flex-direction:column;gap:1px;border-radius:var(--r-sm);overflow:hidden}
+.upd-pkgs-head{font-size:.7rem;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);font-weight:600;padding:4px 2px 10px}
+.upd-pkg{display:flex;align-items:center;gap:10px;padding:9px 13px;background:rgba(255,255,255,.03);font-size:.86rem}
+.upd-pkg:hover{background:rgba(255,255,255,.055)}
+.upd-pkg-name{color:var(--fg);font-family:'JetBrains Mono';font-size:.84rem}
+.upd-pkg-src{font-size:.6rem;text-transform:uppercase;letter-spacing:.07em;font-weight:700;padding:2px 7px;border-radius:20px;flex:none;min-width:52px;text-align:center}
+.src-pacman{background:rgba(232,112,42,.16);color:var(--accent-hi);border:1px solid rgba(232,112,42,.4)}
+.src-aur{background:rgba(90,150,232,.16);color:#7db0ff;border:1px solid rgba(90,150,232,.4)}
+.src-tools{background:rgba(78,195,122,.14);color:var(--ok);border:1px solid rgba(78,195,122,.4)}
+.upd-pkg-ver{font-size:.76rem;color:var(--muted)}
+.upd-pkg-ver .arrow{color:var(--accent);margin:0 2px}
 
 /* ---- AnonKit: i2p icon toggle + the live status/console window ---- */
 /* Made to read UNMISTAKABLY as a toggle: it was a flat chip people didn't realise was

@@ -135,6 +135,14 @@ fn updates_breakdown() -> serde_json::Value {
     serde_json::from_str(&out).unwrap_or(serde_json::json!({"pacman":0,"aur":0,"tools":0,"total":0}))
 }
 
+// The full outdated list WITH package names + versions (per source), for the Update panel to show
+// exactly WHAT will be updated. Same live source as the counts, so they always agree.
+#[tauri::command]
+fn updates_list() -> serde_json::Value {
+    let out = run("arx", &["updates-list-json"]);
+    serde_json::from_str(&out).unwrap_or(serde_json::json!({"packages":[],"pacman":0,"aur":0,"tools":0,"total":0}))
+}
+
 #[derive(Serialize)]
 struct Kernel { flavor: String, version: String, status: String, role: String, running: bool }
 
@@ -521,7 +529,7 @@ fn kernel_remove(flavor: String) -> Result<(), String> {
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
-            system_info, storage_info, updates_count, updates_breakdown, kernels_list, kernels_manifest, weapons_categories, arsenal_totals, arsenal_totals_refresh, weapons_menu_rebuild, browser_harden, browser_status, services_status,
+            system_info, storage_info, updates_count, updates_breakdown, updates_list, kernels_list, kernels_manifest, weapons_categories, arsenal_totals, arsenal_totals_refresh, weapons_menu_rebuild, browser_harden, browser_status, services_status,
             weapons_install, weapons_remove, weapons_browse, system_update, sync_databases, kernel_install, kernel_remove,
             anond_status, anond_action, anond_action_streamed, anond_exit_location,
             arxonion_status, arxonion_toggle, arxonion_shell, arxonion_launch_browser, arxonion_run_app,
