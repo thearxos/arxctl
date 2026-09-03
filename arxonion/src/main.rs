@@ -205,8 +205,36 @@ fn passwd_field<F: Fn(&[&str]) -> bool>(pred: F, col: usize) -> Option<String> {
     })
 }
 
+fn cmd_out(bin: &str, args: &[&str]) -> String {
+    Command::new(bin).args(args).output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).to_string()).unwrap_or_default()
+}
+
+// Re-register the display-:0 cookie under the CURRENT hostname into a temp xauth file, and return
+// its path. WHY: anond spoofs the hostname (e.g. -> "localhost") for anonymity, but the session's X
+// cookie is keyed to the ORIGINAL hostname (e.g. "arxos/unix:0"). A freshly launched app does
+// gethostname() -> the spoofed name, looks up "<spoofed>/unix:0", finds nothing, and sends NO
+// cookie -> the X server answers "Authorization required, but no authorization protocol specified"
+// and the app cannot open the display. Copying the SAME cookie value under the current hostname
+// restores local X auth without ever touching the user's real ~/.Xauthority.
+fn hostname_xauth(src: &str, user: &str) -> Option<String> {
+    // the cookie value is hostname-independent; grab it from the :0 entry whatever host it lists.
+    let cookie = cmd_out("xauth", &["-f", src, "list"]).lines()
+        .find(|l| l.split_whitespace().next().is_some_and(|h| h.ends_with(":0")))
+        .and_then(|l| l.split_whitespace().nth(2).map(str::to_string))?;
+    let host = cmd_out("hostname", &[]).trim().to_string();
+    if host.is_empty() || cookie.is_empty() { return None; }
+    let tmp = format!("/run/arxonion-xauth.{}", std::process::id());
+    let _ = std::fs::remove_file(&tmp);
+    sh("xauth", &["-f", &tmp, "add", &format!("{host}/unix:0"), "MIT-MAGIC-COOKIE-1", &cookie]).ok()?;
+    let _ = sh("chown", &[user, &tmp]);
+    let _ = sh("chmod", &["600", &tmp]);
+    Some(tmp)
+}
+
 fn exec_in_ns(cmd: &[String]) -> Result<i32> {
     let mut args: Vec<String> = vec!["netns".into(), "exec".into(), NETNS.into()];
+    let mut xauth_tmp: Option<String> = None;
     // Run the app AS THE INVOKING USER, not root. Root is needed only to enter the namespace; the
     // program must not run privileged — a GUI app as root refuses or writes root-owned files into
     // the user's home, and because the Control Center launches us via pkexec/sudo a root-run
@@ -214,22 +242,25 @@ fn exec_in_ns(cmd: &[String]) -> Result<i32> {
     if let Some(user) = invoking_user() {
         args.extend(["runuser".into(), "-u".into(), user.clone(), "--".into()]);
         // Re-assert the user's HOME + X credentials for the app via `env`, AFTER the drop. sudo
-        // sets HOME=/root and PAM/runuser can clear XAUTHORITY, which leaves a GUI app unable to
-        // find its X cookie ("Authorization required, but no authorization protocol specified" /
-        // "cannot open display"). Pass HOME explicitly, and DISPLAY + XAUTHORITY when a display is
-        // in scope (carried in via `sudo --preserve-env`, else default to the user's ~/.Xauthority).
+        // sets HOME=/root and PAM/runuser can clear XAUTHORITY, leaving a GUI app unable to find
+        // its X cookie. Pass HOME, and (when a display is in scope) DISPLAY + a hostname-corrected
+        // XAUTHORITY so the spoofed hostname does not break local X auth.
         args.push("env".into());
         let home = user_home(&user);
         if let Some(ref h) = home { args.push(format!("HOME={h}")); }
         if let Ok(display) = std::env::var("DISPLAY") {
             args.push(format!("DISPLAY={display}"));
-            let xauth = std::env::var("XAUTHORITY").ok()
+            let src = std::env::var("XAUTHORITY").ok()
                 .or_else(|| home.as_ref().map(|h| format!("{h}/.Xauthority")));
-            if let Some(x) = xauth { args.push(format!("XAUTHORITY={x}")); }
+            // prefer a temp cookie registered under the current hostname; fall back to the source.
+            let xauth = src.as_ref().and_then(|s| hostname_xauth(s, &user));
+            xauth_tmp = xauth.clone();
+            if let Some(x) = xauth.or(src) { args.push(format!("XAUTHORITY={x}")); }
         }
     }
     args.extend(cmd.iter().cloned());
     let st = Command::new("ip").args(&args).status().context("exec command in the namespace")?;
+    if let Some(tmp) = xauth_tmp { let _ = std::fs::remove_file(tmp); }  // don't leave the temp cookie behind
     Ok(st.code().unwrap_or(-1))
 }
 
