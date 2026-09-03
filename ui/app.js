@@ -40,7 +40,48 @@ loaders.dashboard = async () => {
   $('#deck-distro').textContent = s.distro;
   $('#deck-kernel').textContent = s.kernel;
   invoke('updates_count').then(n => $('#d-updates').textContent = n);
+  paintDashAnon();
+  paintDashStorage();
 };
+
+// Anonymity at a glance on the dashboard: is the system exiting through Tor, and how to turn it off.
+async function paintDashAnon() {
+  let a; try { a = await invoke('anond_status'); } catch { return; }
+  const dot = $('#d-anon-dot'), st = $('#d-anon-state'), hint = $('#d-anon-hint'), card = $('#d-anon-card');
+  const set = (cls, label, tip) => {
+    dot.className = 'anon-dot ' + cls;
+    st.innerHTML = ''; st.appendChild(dot); st.append(label);
+    hint.textContent = tip;
+    card.classList.toggle('on', cls === 'on');
+  };
+  if (a.state === 'Active') set('on', 'Anonymous', 'Exiting via Tor. Privacy tab → Stop to turn off.');
+  else if (a.state === 'Bootstrapping') set('busy', `Bootstrapping ${a.bootstrap_pct || 0}%`, 'Connecting to Tor…');
+  else if (a.state === 'Locked') set('busy', 'Locked (blocked)', 'Traffic is blocked. Privacy tab → Stop to release.');
+  else set('off', 'Off', 'Privacy tab → Go anonymous to route through Tor.');
+}
+
+const fmtGiB = b => (b / 1073741824).toFixed(b < 10737418240 ? 1 : 0) + ' GiB';
+// Storage overview: every real drive with a used/total bar, plus a line for any attached-but-
+// unmounted drive so a freshly plugged-in disk is visible at a glance.
+async function paintDashStorage() {
+  let s; try { s = await invoke('storage_info'); } catch { return; }
+  const list = $('#d-storage-list');
+  if (!s.disks || !s.disks.length) { list.innerHTML = '<div class="soon">No drives detected.</div>'; return; }
+  list.innerHTML = s.disks.map(d => {
+    const cls = d.pct >= 90 ? 'crit' : d.pct >= 75 ? 'warn' : '';
+    return `<div class="disk-row">
+      <div class="disk-head"><b>${d.mount}</b><span class="dim mono">${d.source}</span>
+        <span class="disk-nums mono">${fmtGiB(d.used)} / ${fmtGiB(d.size)} · ${d.pct}%</span></div>
+      <div class="meter sm"><i class="${cls}" style="width:${d.pct}%"></i></div></div>`;
+  }).join('');
+  const root = s.disks.find(d => d.mount === '/') || s.disks[0];
+  $('#d-storage-sub').textContent = `${fmtGiB(root.avail)} free on ${root.mount}`;
+  const u = $('#d-storage-unmounted');
+  if (s.unmounted && s.unmounted.length) {
+    u.hidden = false;
+    u.textContent = `${s.unmounted.length} drive${s.unmounted.length > 1 ? 's' : ''} attached, not mounted: ${s.unmounted.join(', ')}`;
+  } else u.hidden = true;
+}
 
 // ---- update ----
 // A real per-source count (official repos / AUR / ArxOS tools), refreshed on load, on

@@ -68,13 +68,62 @@ fn system_info() -> SysInfo {
     SysInfo { host, distro, kernel, uptime, cpu, mem_used: total.saturating_sub(avail), mem_total: total, mem_type, load }
 }
 
+#[derive(Serialize)]
+struct Disk { source: String, mount: String, size: u64, used: u64, avail: u64, pct: u8 }
+#[derive(Serialize)]
+struct StorageInfo { disks: Vec<Disk>, unmounted: Vec<String> }
+
+// Storage overview for the dashboard: every real (block-device-backed) mount with used/total, plus
+// any block partition sitting UNMOUNTED (a freshly plugged-in drive the user has not mounted yet).
+// Re-fetched by the GUI, so a newly mounted drive appears on the next paint (no udev wiring needed
+// for a glance-level view). Uses df + lsblk (both ship with coreutils/util-linux, always present).
+#[tauri::command]
+fn storage_info() -> StorageInfo {
+    let mut disks = Vec::new();
+    // df -B1: columns = Source 1B-blocks Used Available Use% Mounted-on. Real disks only (/dev/*),
+    // so tmpfs/overlay/devtmpfs and the squashfs live layer are excluded.
+    for line in run("df", &["-B1"]).lines().skip(1) {
+        let f: Vec<&str> = line.split_whitespace().collect();
+        if f.len() < 6 || !f[0].starts_with("/dev/") { continue; }
+        let size = f[1].parse::<u64>().unwrap_or(0);
+        let used = f[2].parse::<u64>().unwrap_or(0);
+        let avail = f[3].parse::<u64>().unwrap_or(0);
+        let pct = if size > 0 { (used as f64 / size as f64 * 100.0).round() as u8 } else { 0 };
+        disks.push(Disk { source: f[0].to_string(), mount: f[5..].join(" "), size, used, avail, pct });
+    }
+    // put the root filesystem first so the dashboard leads with "/".
+    disks.sort_by(|a, b| (a.mount != "/").cmp(&(b.mount != "/")).then(a.mount.cmp(&b.mount)));
+    // unmounted drives. lsblk -P gives KEY="value" pairs that never collapse, so MOUNTPOINT="" is
+    // unambiguous (unlike raw columns, where an empty mountpoint shifts the fields). Flag a
+    // PARTITION with no mountpoint (a drive plugged in but not mounted), or a whole disk that has a
+    // filesystem directly and no mountpoint (a raw-formatted USB). A bare parent disk (no fstype,
+    // no mountpoint — e.g. /dev/vda holding the mounted vda1+vda2) is NOT flagged: that would be a
+    // false "unmounted drive".
+    let mut unmounted = Vec::new();
+    for line in run("lsblk", &["-Pno", "NAME,TYPE,MOUNTPOINT,SIZE,FSTYPE"]).lines() {
+        let g = |k: &str| line.split(&format!("{k}=\"")).nth(1).and_then(|s| s.split('"').next()).unwrap_or("").to_string();
+        let (name, typ, mnt, size, fs) = (g("NAME"), g("TYPE"), g("MOUNTPOINT"), g("SIZE"), g("FSTYPE"));
+        if !mnt.is_empty() { continue; }
+        if typ == "part" || (typ == "disk" && !fs.is_empty()) {
+            unmounted.push(format!("/dev/{name} · {size}"));
+        }
+    }
+    StorageInfo { disks, unmounted }
+}
+
 #[tauri::command]
 fn updates_count() -> usize {
-    // prefer the count arxos-notify already computed on its last ping (instant, and it's
-    // what the desktop notification was based on); fall back to a fresh local check.
+    // Use the SAME live source as the Update panel (arx updates-json total: pacman + AUR + tools),
+    // so the dashboard count and the blinking nav badge never disagree with the panel. The old path
+    // trusted the arxos-notify cache first, which could be STALE — it showed 0 while an AUR/tool
+    // update was actually pending, hiding the badge (found via "check updates": pacman 0 but aur 1).
+    // The notify cache is only a fallback now, for when the live check itself fails.
+    let out = run("arx", &["updates-json"]);
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&out) {
+        if let Some(t) = v.get("total").and_then(|x| x.as_u64()) { return t as usize; }
+    }
     let cache = std::env::var("XDG_CACHE_HOME").unwrap_or_else(|_| format!("{}/.cache", std::env::var("HOME").unwrap_or_default()));
-    if let Ok(n) = read(&format!("{cache}/arxos/update-count")).trim().parse::<usize>() { return n; }
-    run("arx", &["outdated"]).lines().filter(|l| !l.trim().is_empty()).count()
+    read(&format!("{cache}/arxos/update-count")).trim().parse::<usize>().unwrap_or(0)
 }
 
 // The real per-source breakdown (official repos / AUR / ArxOS tool repos), computed
@@ -472,7 +521,7 @@ fn kernel_remove(flavor: String) -> Result<(), String> {
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
-            system_info, updates_count, updates_breakdown, kernels_list, kernels_manifest, weapons_categories, arsenal_totals, arsenal_totals_refresh, weapons_menu_rebuild, browser_harden, browser_status, services_status,
+            system_info, storage_info, updates_count, updates_breakdown, kernels_list, kernels_manifest, weapons_categories, arsenal_totals, arsenal_totals_refresh, weapons_menu_rebuild, browser_harden, browser_status, services_status,
             weapons_install, weapons_remove, weapons_browse, system_update, sync_databases, kernel_install, kernel_remove,
             anond_status, anond_action, anond_action_streamed, anond_exit_location,
             arxonion_status, arxonion_toggle, arxonion_shell, arxonion_launch_browser, arxonion_run_app,

@@ -39,11 +39,21 @@
         <div class="card stat"><span class="k">Kernel</span><b id="d-kernel" class="mono">—</b><span id="d-uptime" class="dim"></span></div>
         <div class="card stat"><span class="k">Updates</span><b id="d-updates">—</b><span class="dim">available</span></div>
         <div class="card stat"><span class="k">Load</span><b id="d-load" class="mono">—</b><span class="dim">1 / 5 / 15 min</span></div>
+        <div class="card stat anon-stat" id="d-anon-card">
+          <span class="k">Anonymity</span>
+          <b id="d-anon-state"><span class="anon-dot" id="d-anon-dot"></span>—</b>
+          <span class="dim" id="d-anon-hint"></span>
+        </div>
       </div>
       <div class="card wide">
         <div class="meter-head"><span class="k">Memory</span><span id="d-mem-label" class="mono dim"></span></div>
         <div class="meter"><i id="d-mem-bar"></i></div>
         <p id="d-cpu" class="dim cpu"></p>
+      </div>
+      <div class="card wide" id="d-storage-card">
+        <div class="meter-head"><span class="k">Storage</span><span class="mono dim" id="d-storage-sub"></span></div>
+        <div id="d-storage-list"><div class="soon">Reading drives…</div></div>
+        <p class="dim" id="d-storage-unmounted" hidden></p>
       </div>
     </section>
 
