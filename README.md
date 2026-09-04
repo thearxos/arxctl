@@ -52,6 +52,7 @@
 - **Performance** governor, energy preference, turbo and per core load, straight from `/sys`. Detects a virtual machine and degrades honestly.
 - **Network** live per interface throughput read from the kernel counters, and listening ports with one click hardening (disable the service, or block the port in an isolated firewall table).
 - **Privacy** drives **anond**, the ArxOS anonymity daemon: fail closed Tor with a kill switch, DNS pinned to Tor, IPv6 dropped, an optional i2p overlay, and a runtime leak test. Bundled inside the Control Center and available as a standalone binary.
+- **Wallpaper** browse and set the desktop wallpaper, with a slideshow and download-more from curated sources; drives xfconf directly, with an feh fallback.
 - **Services** what is running.
 - **Info** the machine.
 
