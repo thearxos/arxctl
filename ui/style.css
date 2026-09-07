@@ -469,3 +469,31 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opa
 .onion-boundary{margin-top:14px;padding:12px 14px;border-radius:var(--r-sm);font-size:.8rem;line-height:1.55;
   color:var(--muted);background:rgba(232,112,42,.06);border:1px solid rgba(232,112,42,.22)}
 .onion-boundary b{color:var(--fg)}
+
+/* ============================================================================
+   STATIC MODE  (owner directive, 2026-09-07)
+   The Control Center runs on software-rendered WebKitGTK inside a VM, where
+   animation, transitions, backdrop blur, the full-surface noise overlay, and
+   large colored bloom/ring shadows are the main causes of lag and scroll
+   trails. This block turns all of that off so every panel paints once and
+   stays perfectly still: no motion, no glow, no blur. It is intentionally last
+   so it overrides every rule above; functional STATE transforms (e.g. the
+   toggle knob's on/off position) are left untouched.
+   ============================================================================ */
+*, *::before, *::after{
+  animation:none !important;            /* navpulse, rise, fadein, pulse — off */
+  transition:none !important;           /* every hover/state change is instant */
+  box-shadow:none !important;           /* removes all glows AND heavy blurred depth shadows */
+  text-shadow:none !important;
+  filter:none !important;               /* drop-shadow glow + hover brightness — off */
+  backdrop-filter:none !important;      /* the biggest software-render cost */
+  -webkit-backdrop-filter:none !important;
+}
+/* no hover/press lift, so nothing shifts position on interaction */
+.card:hover,.loadout:hover,.prof:hover,.cat:hover,.wall-tile:hover,
+.nav-item:hover,.nav-item:hover svg,.i2p-toggle:hover,.i2p-toggle:active{transform:none !important}
+/* drop the expensive full-surface noise/blend overlay entirely */
+body::before{display:none !important}
+/* the fixed, multi-radial page background repaints on every scroll under software
+   rendering; pin it to a single flat grey so scrolling is cheap and never trails */
+body{background:var(--bg) !important;background-attachment:scroll !important}
