@@ -170,7 +170,26 @@ function paintArsenalTotal(t, box) {
     box.appendChild(row);
   }
 }
+// Community registry opt-in: reflect the current state on every panel open, and wire the toggle
+// once. Enabling/disabling goes through pkexec (root writes the /etc/arxos flag arx checks).
+async function paintCommunity() {
+  const t = $('#community-toggle'), s = $('#community-state');
+  if (!t) return;
+  let on = false; try { on = await invoke('community_status'); } catch {}
+  t.checked = on;
+  if (s) s.textContent = on ? 'Enabled — arx pub can install community repos.' : 'Disabled — arx pub install is blocked until you enable it.';
+  if (!t.dataset.wired) {
+    t.dataset.wired = '1';
+    t.addEventListener('change', async (e) => {
+      const want = e.target.checked;
+      try { const now = await invoke('community_set', { enabled: want }); e.target.checked = now; }
+      catch (err) { e.target.checked = !want; } // pkexec cancelled/failed: revert
+      paintCommunity();
+    });
+  }
+}
 loaders.weapons = async () => {
+  paintCommunity();
   if ($('#weap-cats').childElementCount) return; // once
   const box = $('#weap-cats');
   const cats = await invoke('weapons_categories');

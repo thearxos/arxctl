@@ -81,6 +81,14 @@
 
     <section class="panel" id="p-weapons">
       <header class="phead"><h1 class="pf">The arsenal</h1><p>Grab a ready loadout, or install a whole category. Each runs in a terminal so you watch every step, and closes on success.</p></header>
+      <div class="card row" id="community-card" style="margin-bottom:22px">
+        <div class="grow">
+          <b>Community registry</b>
+          <div class="dim" style="font-size:.86rem;margin-top:3px">Public, community-contributed repos installable with <span class="mono">arx pub</span>. These are <b>unvetted</b> — off by default. Turn this on to receive from that stream.</div>
+          <div class="dim" id="community-state" style="font-size:.78rem;margin-top:6px"></div>
+        </div>
+        <label class="switch"><input type="checkbox" id="community-toggle"><i></i></label>
+      </div>
       <div class="weap-sub">Quick loadouts</div>
       <div class="loadouts">
         <button class="loadout" data-sel="default"><span class="lo-ic">⚔</span><b>Default loadout</b><span class="lo-d">~40 essentials — the everyday kit, preshipped on ArxOS</span></button>

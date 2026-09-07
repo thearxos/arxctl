@@ -11,6 +11,7 @@ mod perf;
 mod net;
 mod wallpaper;
 mod vm_tools;
+mod community;
 
 // ---------- small helpers ----------
 
@@ -555,7 +556,8 @@ fn main() {
             net::net_iface_set, net::net_wifi_state, net::net_wifi_radio, net::net_wifi_scan, net::net_wifi_connect,
             wallpaper::wallpapers_list, wallpaper::wallpaper_set, wallpaper::wallpaper_fetch,
             wallpaper::wallpaper_cycle_status, wallpaper::wallpaper_cycle_set,
-            vm_tools::vm_status, vm_tools::vm_setup
+            vm_tools::vm_status, vm_tools::vm_setup,
+            community::community_status, community::community_set
         ])
         .run(tauri::generate_context!())
         .expect("error while running the ArxOS Control Center");
