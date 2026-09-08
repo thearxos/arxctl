@@ -39,10 +39,12 @@ loaders.dashboard = async () => {
   $('#d-mem-label').textContent = `${(s.mem_used / 1048576).toFixed(1)} / ${(s.mem_total / 1048576).toFixed(1)} GiB  (${pct}%)`;
   $('#deck-distro').textContent = s.distro;
   $('#deck-kernel').textContent = s.kernel;
-  invoke('updates_count').then(n => $('#d-updates').textContent = n);
+  // updates_count is shared with the nav badge (see updatesCount) so boot never runs it twice.
+  updatesCount().then(n => $('#d-updates').textContent = n).catch(() => {});
   paintDashAnon();
   paintDashStorage();
-  paintDashNews();
+  // news_list fetches raw.githubusercontent.com, so it is deferred off the first-paint path.
+  idle(paintDashNews);
 };
 
 // ArxOS news feed — what's new + improved, from the public metadata repo. Hidden if unreachable.
@@ -788,20 +790,36 @@ loaders.wallpaper = async () => {
 // published for an installed flavor). Refreshed at boot and after any update action, so a user
 // sees a pending update without opening the tab. No polling loop (idle-is-a-feature doctrine).
 const kver = v => (String(v).match(/\d+\.\d+\.\d+/) || [String(v)])[0]; // compare on the x.y.z core
-async function refreshBadges() {
-  try {
-    const n = await invoke('updates_count');
+
+// updates_count is not cheap (it consults the package databases) and was previously invoked twice
+// at boot: once for the dashboard tile and once for the nav badge. Share ONE in-flight promise so
+// the work happens a single time. `force` re-runs it after an update action.
+let _uc = null;
+function updatesCount(force) { if (force || !_uc) _uc = invoke('updates_count'); return _uc; }
+
+// Run work AFTER the window has painted. Boot used to fire two raw.githubusercontent.com fetches
+// (news_list, kernels_manifest) straight onto the first-paint path, so on a slow or offline link
+// the whole UI sat there waiting on the network. Deferring them means the window is up and usable
+// immediately and these fill in when they land.
+const idle = fn => (window.requestIdleCallback
+  ? requestIdleCallback(() => fn(), { timeout: 2000 })
+  : setTimeout(fn, 60));
+
+async function refreshBadges(force) {
+  // the two checks are independent — run them concurrently instead of one after the other.
+  const upd = updatesCount(force).then(n => {
     const b = $('#badge-update');
     if (n > 0) { b.textContent = n > 99 ? '99+' : String(n); b.hidden = false; } else { b.hidden = true; }
-  } catch { /* leave the badge as-is on a transient failure */ }
-  try {
-    const [installed, manifest] = await Promise.all([invoke('kernels_list'), invoke('kernels_manifest')]);
+  }).catch(() => { /* leave the badge as-is on a transient failure */ });
+  const ker = Promise.all([invoke('kernels_list'), invoke('kernels_manifest')]).then(([installed, manifest]) => {
     const cur = {}; (manifest.flavors || []).forEach(f => { cur[f.name] = kver(f.current); });
     const stale = (installed || []).some(k => cur[k.flavor] && kver(k.version) !== cur[k.flavor]);
     $('#dot-kernels').hidden = !stale;
-  } catch { /* manifest unreachable: no dot rather than a false one */ }
+  }).catch(() => { /* manifest unreachable: no dot rather than a false one */ });
+  return Promise.all([upd, ker]);
 }
 
-// first paint
+// first paint: the dashboard renders from local system info immediately; everything that touches
+// the network is deferred so it can never delay the window appearing.
 loaders.dashboard();
-refreshBadges();
+idle(() => refreshBadges());

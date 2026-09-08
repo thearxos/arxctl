@@ -511,29 +511,27 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opa
 body::before{ display:none !important }
 body{ background:var(--bg) !important; background-attachment:scroll !important }
 
-/* ---- fluidity, the cheap way -------------------------------------------------
-   Only background-color / border-color / color / opacity / transform are tweened, and
-   only on the elements you actually touch. No `transition:all` (it repaints on every
-   property), no transitions on layout properties (width/height/top), no will-change
-   (it forces extra layers, which costs more than it saves under software rendering). */
-.nav-item,.nav-item svg,.card,.loadout,.cat,.prof,.btn,.btn-p,.wall-tile,
-.i2p-toggle,.link,.ctl,.badge,.pexp{
-  transition:background-color .13s ease, border-color .13s ease, color .13s ease, opacity .13s ease !important;
+/* ---- NO MOTION (owner directive, 2026-09-08) ---------------------------------
+   Every decorative animation and transition is removed, hover included. Nothing tweens,
+   nothing fades, nothing lifts or nudges: state changes land in a single paint. Hover
+   still gives feedback, but as an INSTANT colour/border change, not an animated one.
+   The only motion left in the app is the two status indicators below, which are
+   information (something is waiting for you), not decoration. */
+*, *::before, *::after{
+  transition:none !important;
+  animation:none !important;
 }
-/* press feedback: a tiny, compositor-only nudge so clicks feel responsive */
-.nav-item:active,.loadout:active,.cat:active,.prof:active,.btn:active,.btn-p:active{
-  transform:translateY(1px);
-}
-/* TAB SWITCH: opacity-only micro-fade. The old `rise` slid the whole panel 10px over
-   350ms — a large moving repaint, which is exactly what felt heavy. This is ~8x shorter
-   and moves nothing, so switching reads as instant but never blinks harshly. */
-.panel{ display:none; animation:none }
-.panel.active{ display:block; animation:panelin .12s ease-out both }
-@keyframes panelin{ from{opacity:.4} to{opacity:1} }
-/* category switching gets the same instant treatment (no per-row animation) */
-.cat{ animation:none !important }
-/* keep the two functional signals (they're status, not decoration, and both are opacity-only) */
-.nav-item .dot{ animation:navpulse 1.6s ease-in-out infinite !important }
+/* no hover/press movement anywhere — nothing shifts position when you point at it */
+.card:hover,.loadout:hover,.prof:hover,.cat:hover,.wall-tile:hover,.nav-item:hover,
+.nav-item:hover svg,.i2p-toggle:hover,.i2p-toggle:active,.nav-item:active,.loadout:active,
+.cat:active,.prof:active,.btn:active,.btn-p:active{ transform:none !important }
+/* TAB SWITCH: a plain display swap. The old `rise` slid the whole panel 10px over 350ms
+   (a large moving repaint) — that is what felt heavy. Now the panel simply appears. */
+.panel{ display:none }
+.panel.active{ display:block }
+/* the two functional status signals stay: a pending update and a stale kernel must catch
+   the eye. Opacity-only, so they cost nothing to paint. */
+.nav-badge,.nav-dot{ animation:navpulse 1.8s infinite !important }
 /* smooth wheel/scroll in the one scroll region, and stop scroll chaining to the window */
 .stage{ overscroll-behavior:contain; scroll-behavior:smooth }
 .console{ overscroll-behavior:contain }
