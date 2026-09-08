@@ -39,8 +39,10 @@ loaders.dashboard = async () => {
   $('#d-mem-label').textContent = `${(s.mem_used / 1048576).toFixed(1)} / ${(s.mem_total / 1048576).toFixed(1)} GiB  (${pct}%)`;
   $('#deck-distro').textContent = s.distro;
   $('#deck-kernel').textContent = s.kernel;
-  // updates_count is shared with the nav badge (see updatesCount) so boot never runs it twice.
-  updatesCount().then(n => $('#d-updates').textContent = n).catch(() => {});
+  // The updates tile paints from the CACHED count instantly. The live count (arx updates-json)
+  // takes 7-10s because it checks the AUR and fetches the tools manifest, so it is never on this
+  // path — refreshBadges() corrects both the tile and the badge when it lands.
+  invoke('updates_count_cached').then(n => { if (n >= 0) $('#d-updates').textContent = n; }).catch(() => {});
   paintDashAnon();
   paintDashStorage();
   // news_list fetches raw.githubusercontent.com, so it is deferred off the first-paint path.
@@ -796,6 +798,10 @@ const kver = v => (String(v).match(/\d+\.\d+\.\d+/) || [String(v)])[0]; // compa
 // the work happens a single time. `force` re-runs it after an update action.
 let _uc = null;
 function updatesCount(force) { if (force || !_uc) _uc = invoke('updates_count'); return _uc; }
+function paintUpdBadge(n) {
+  const b = $('#badge-update'); if (!b) return;
+  if (n > 0) { b.textContent = n > 99 ? '99+' : String(n); b.hidden = false; } else { b.hidden = true; }
+}
 
 // Run work AFTER the window has painted. Boot used to fire two raw.githubusercontent.com fetches
 // (news_list, kernels_manifest) straight onto the first-paint path, so on a slow or offline link
@@ -807,9 +813,14 @@ const idle = fn => (window.requestIdleCallback
 
 async function refreshBadges(force) {
   // the two checks are independent — run them concurrently instead of one after the other.
+  // paint the badge from the cache first so it is right immediately on a normal boot...
+  let live = false;   // ...but never let a late cache read overwrite the live value
+  const cached = invoke('updates_count_cached').then(n => { if (!live && n >= 0) paintUpdBadge(n); }).catch(() => {});
+  // ...then correct both the badge and the dashboard tile with the live count when it arrives.
   const upd = updatesCount(force).then(n => {
-    const b = $('#badge-update');
-    if (n > 0) { b.textContent = n > 99 ? '99+' : String(n); b.hidden = false; } else { b.hidden = true; }
+    live = true;
+    paintUpdBadge(n);
+    const d = $('#d-updates'); if (d) d.textContent = n;
   }).catch(() => { /* leave the badge as-is on a transient failure */ });
   const ker = Promise.all([invoke('kernels_list'), invoke('kernels_manifest')]).then(([installed, manifest]) => {
     const cur = {}; (manifest.flavors || []).forEach(f => { cur[f.name] = kver(f.current); });

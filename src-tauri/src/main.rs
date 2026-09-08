@@ -112,6 +112,20 @@ fn storage_info() -> StorageInfo {
     StorageInfo { disks, unmounted }
 }
 
+fn update_count_cache_path() -> String {
+    let cache = std::env::var("XDG_CACHE_HOME").unwrap_or_else(|_| format!("{}/.cache", std::env::var("HOME").unwrap_or_default()));
+    format!("{cache}/arxos/update-count")
+}
+
+/// The cached count ONLY — a single small file read, no subprocess, so it returns instantly.
+/// Boot paints the dashboard tile and the nav badge from this, then corrects them with the live
+/// count once it lands. Returns -1 when there is no cache yet, so the UI can tell "unknown" from
+/// a real zero and simply show nothing rather than a wrong 0.
+#[tauri::command]
+fn updates_count_cached() -> i64 {
+    read(&update_count_cache_path()).trim().parse::<i64>().unwrap_or(-1)
+}
+
 #[tauri::command]
 fn updates_count() -> usize {
     // Use the SAME live source as the Update panel (arx updates-json total: pacman + AUR + tools),
@@ -119,12 +133,22 @@ fn updates_count() -> usize {
     // trusted the arxos-notify cache first, which could be STALE — it showed 0 while an AUR/tool
     // update was actually pending, hiding the badge (found via "check updates": pacman 0 but aur 1).
     // The notify cache is only a fallback now, for when the live check itself fails.
+    //
+    // NOTE: this is SLOW (measured 7-10s: it checks the AUR and fetches the tools manifest over the
+    // network), which is why it must never sit on the first-paint path — the UI calls
+    // updates_count_cached() for the instant value and only reaches here from a deferred refresh.
     let out = run("arx", &["updates-json"]);
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(&out) {
-        if let Some(t) = v.get("total").and_then(|x| x.as_u64()) { return t as usize; }
+        if let Some(t) = v.get("total").and_then(|x| x.as_u64()) {
+            // self-heal the cache so the NEXT boot's instant value is correct. The cache is written
+            // by arxos-notify too; refreshing it here keeps the two in agreement.
+            let p = update_count_cache_path();
+            if let Some(dir) = std::path::Path::new(&p).parent() { let _ = std::fs::create_dir_all(dir); }
+            let _ = std::fs::write(&p, t.to_string());
+            return t as usize;
+        }
     }
-    let cache = std::env::var("XDG_CACHE_HOME").unwrap_or_else(|_| format!("{}/.cache", std::env::var("HOME").unwrap_or_default()));
-    read(&format!("{cache}/arxos/update-count")).trim().parse::<usize>().unwrap_or(0)
+    read(&update_count_cache_path()).trim().parse::<usize>().unwrap_or(0)
 }
 
 // The real per-source breakdown (official repos / AUR / ArxOS tool repos), computed
@@ -547,7 +571,7 @@ fn kernel_remove(flavor: String) -> Result<(), String> {
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
-            system_info, storage_info, updates_count, updates_breakdown, updates_list, news_list, kernels_list, kernels_manifest, weapons_categories, arsenal_totals, arsenal_totals_refresh, weapons_menu_rebuild, browser_harden, browser_status, services_status,
+            system_info, storage_info, updates_count, updates_count_cached, updates_breakdown, updates_list, news_list, kernels_list, kernels_manifest, weapons_categories, arsenal_totals, arsenal_totals_refresh, weapons_menu_rebuild, browser_harden, browser_status, services_status,
             weapons_install, weapons_remove, weapons_browse, system_update, sync_databases, kernel_install, kernel_remove,
             anond_status, anond_action, anond_action_streamed, anond_exit_location,
             arxonion_status, arxonion_toggle, arxonion_shell, arxonion_launch_browser, arxonion_run_app,
