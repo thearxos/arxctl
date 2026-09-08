@@ -125,6 +125,7 @@ async function paintUpdateCounts() {
 }
 loaders.update = () => {
   paintUpdateCounts();
+  paintCommunity();
   if (updPollTimer) clearInterval(updPollTimer);
   updPollTimer = setInterval(paintUpdateCounts, 15000); // live while this panel is open
 };
@@ -189,7 +190,6 @@ async function paintCommunity() {
   }
 }
 loaders.weapons = async () => {
-  paintCommunity();
   if ($('#weap-cats').childElementCount) return; // once
   const box = $('#weap-cats');
   const cats = await invoke('weapons_categories');

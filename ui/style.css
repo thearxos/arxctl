@@ -497,3 +497,19 @@ body::before{display:none !important}
 /* the fixed, multi-radial page background repaints on every scroll under software
    rendering; pin it to a single flat grey so scrolling is cheap and never trails */
 body{background:var(--bg) !important;background-attachment:scroll !important}
+
+/* ---- heaviness pass (owner directive, 2026-09-07): remove visual-only weight, keep every
+   control + the full mechanism. Gradients are the expensive part to paint on software-rendered
+   WebKitGTK; flatten every decorative surface to a SOLID fill, and drop purely-cosmetic overlay
+   pseudo-elements. Nothing functional is removed — same panels, same buttons, same behaviour. */
+:root{ --glass: var(--bg2) !important; }
+.deck{ background:#141118 !important }                    /* sidebar: solid, was a gradient+blur */
+.card,.loadout,.cat,.cat.on,.prof,.pf-note,.pf-note.vm,.weap-total,.launched,.al-cell,
+.anon-stat.on,.news-tag,.badge,.upd-pkg-src,.pexp,.link,.wifi-conn,.i2p-toggle,
+.loadout .lo-ic{ background:var(--bg2) !important }
+.btn-p{ background:var(--accent) !important }             /* solid accent button, no gradient/sheen */
+.nav-item.active svg{ background:var(--accent) !important }
+.meter i,.meter i.warn,.meter i.crit,.core .cbar i,.flow .fbar i,.flow.dn .fbar i,.flow.up .fbar i{ background:var(--accent) !important }
+/* drop cosmetic overlays: the glass sheen on every card + the accent underbar on headers */
+.card::after,.phead::after{ display:none !important }
+/* the noise/grain layer is already gone via body::before; keep the mono/serif brand fonts */
