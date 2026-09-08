@@ -182,7 +182,10 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opa
 
 /* ---- weapons: per-category ---- */
 .weap-layout{display:grid;grid-template-columns:260px 1fr;gap:18px}
-.cats{display:flex;flex-direction:column;gap:5px;max-height:440px;overflow-y:auto;padding-right:6px}
+/* categories flow in the page: no inner scrollbox, so the wheel is never trapped in a 440px well
+   and the panel has ONE scroll region (.stage). Not sticky on purpose — the full list is taller
+   than the viewport, and a sticky column that tall would pin its top and hide its own bottom rows. */
+.cats{display:flex;flex-direction:column;gap:5px;align-self:start}
 .cat{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-radius:9px;border:1px solid transparent;
   background:var(--glass);cursor:pointer;transition:.16s;font-size:.88rem;box-shadow:var(--glass-hi)}
 .cat:hover{border-color:var(--glass-br);transform:translateX(2px)}
@@ -271,9 +274,18 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opa
 .perf-top{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
 .drv{font-size:1.05rem!important}
 .ctlcard{display:flex;flex-direction:column;gap:10px;justify-content:center}
-.ctl{width:100%;background:rgba(5,5,7,.6);border:1px solid var(--glass-br);border-radius:9px;color:#fff;
-  padding:10px 12px;font:inherit;font-size:.9rem;cursor:pointer;outline:none;text-transform:capitalize}
+/* appearance:none is required — without it WebKitGTK paints its own NATIVE select widget (white),
+   ignoring the background below. The caret is drawn as an inline SVG so no native chrome remains. */
+.ctl{width:100%;background:var(--bg2);border:1px solid var(--glass-br);border-radius:9px;color:var(--fg);
+  padding:10px 34px 10px 12px;font:inherit;font-size:.9rem;cursor:pointer;outline:none;text-transform:capitalize;
+  appearance:none;-webkit-appearance:none;-moz-appearance:none;
+  background-image:url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23e8702a' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 11px center;background-size:15px}
+.ctl:hover{border-color:rgba(232,112,42,.45)}
 .ctl:focus{border-color:var(--accent)}
+/* the dropdown list itself: without this the open menu renders native white */
+.ctl option{background:var(--bg2);color:var(--fg)}
+.ctl option:checked{background:var(--accent);color:#fff}
 .card.row{display:flex;align-items:center;gap:14px;margin-top:14px}
 .card.row .grow{flex:1}
 .switch{position:relative;width:46px;height:26px;flex:none;cursor:pointer}
@@ -471,45 +483,60 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opa
 .onion-boundary b{color:var(--fg)}
 
 /* ============================================================================
-   STATIC MODE  (owner directive, 2026-09-07)
-   The Control Center runs on software-rendered WebKitGTK inside a VM, where
-   animation, transitions, backdrop blur, the full-surface noise overlay, and
-   large colored bloom/ring shadows are the main causes of lag and scroll
-   trails. This block turns all of that off so every panel paints once and
-   stays perfectly still: no motion, no glow, no blur. It is intentionally last
-   so it overrides every rule above; functional STATE transforms (e.g. the
-   toggle knob's on/off position) are left untouched.
+   FLUID LIGHT  (owner directive, 2026-09-08 — supersedes the 2026-09-07 STATIC MODE)
+   Static mode killed every animation and transition to stop VM lag, which made the
+   UI feel dead and abrupt rather than fast. The real cost on software-rendered
+   WebKitGTK is backdrop blur, large blurred/bloom shadows, full-surface overlays and
+   gradients — NOT short opacity/transform tweens, which the compositor handles cheaply.
+   So: keep every expensive thing off, and put the fluidity back using only cheap
+   properties. Intentionally last so it overrides the rules above.
    ============================================================================ */
 *, *::before, *::after{
-  animation:none !important;            /* navpulse, rise, fadein, pulse — off */
-  transition:none !important;           /* every hover/state change is instant */
-  box-shadow:none !important;           /* removes all glows AND heavy blurred depth shadows */
-  text-shadow:none !important;
-  filter:none !important;               /* drop-shadow glow + hover brightness — off */
-  backdrop-filter:none !important;      /* the biggest software-render cost */
+  backdrop-filter:none !important;      /* the single biggest software-render cost */
   -webkit-backdrop-filter:none !important;
+  box-shadow:none !important;           /* blurred depth + colored bloom rings: expensive, off */
+  text-shadow:none !important;
+  filter:none !important;               /* drop-shadow glow + hover brightness: off */
 }
-/* no hover/press lift, so nothing shifts position on interaction */
-.card:hover,.loadout:hover,.prof:hover,.cat:hover,.wall-tile:hover,
-.nav-item:hover,.nav-item:hover svg,.i2p-toggle:hover,.i2p-toggle:active{transform:none !important}
-/* drop the expensive full-surface noise/blend overlay entirely */
-body::before{display:none !important}
-/* the fixed, multi-radial page background repaints on every scroll under software
-   rendering; pin it to a single flat grey so scrolling is cheap and never trails */
-body{background:var(--bg) !important;background-attachment:scroll !important}
-
-/* ---- heaviness pass (owner directive, 2026-09-07): remove visual-only weight, keep every
-   control + the full mechanism. Gradients are the expensive part to paint on software-rendered
-   WebKitGTK; flatten every decorative surface to a SOLID fill, and drop purely-cosmetic overlay
-   pseudo-elements. Nothing functional is removed — same panels, same buttons, same behaviour. */
+/* flat, solid surfaces (gradients are expensive to paint under software rendering) */
 :root{ --glass: var(--bg2) !important; }
-.deck{ background:#141118 !important }                    /* sidebar: solid, was a gradient+blur */
+.deck{ background:#141118 !important }
 .card,.loadout,.cat,.cat.on,.prof,.pf-note,.pf-note.vm,.weap-total,.launched,.al-cell,
 .anon-stat.on,.news-tag,.badge,.upd-pkg-src,.pexp,.link,.wifi-conn,.i2p-toggle,
 .loadout .lo-ic{ background:var(--bg2) !important }
-.btn-p{ background:var(--accent) !important }             /* solid accent button, no gradient/sheen */
+.btn-p{ background:var(--accent) !important }
 .nav-item.active svg{ background:var(--accent) !important }
 .meter i,.meter i.warn,.meter i.crit,.core .cbar i,.flow .fbar i,.flow.dn .fbar i,.flow.up .fbar i{ background:var(--accent) !important }
-/* drop cosmetic overlays: the glass sheen on every card + the accent underbar on headers */
 .card::after,.phead::after{ display:none !important }
-/* the noise/grain layer is already gone via body::before; keep the mono/serif brand fonts */
+body::before{ display:none !important }
+body{ background:var(--bg) !important; background-attachment:scroll !important }
+
+/* ---- fluidity, the cheap way -------------------------------------------------
+   Only background-color / border-color / color / opacity / transform are tweened, and
+   only on the elements you actually touch. No `transition:all` (it repaints on every
+   property), no transitions on layout properties (width/height/top), no will-change
+   (it forces extra layers, which costs more than it saves under software rendering). */
+.nav-item,.nav-item svg,.card,.loadout,.cat,.prof,.btn,.btn-p,.wall-tile,
+.i2p-toggle,.link,.ctl,.badge,.pexp{
+  transition:background-color .13s ease, border-color .13s ease, color .13s ease, opacity .13s ease !important;
+}
+/* press feedback: a tiny, compositor-only nudge so clicks feel responsive */
+.nav-item:active,.loadout:active,.cat:active,.prof:active,.btn:active,.btn-p:active{
+  transform:translateY(1px);
+}
+/* TAB SWITCH: opacity-only micro-fade. The old `rise` slid the whole panel 10px over
+   350ms — a large moving repaint, which is exactly what felt heavy. This is ~8x shorter
+   and moves nothing, so switching reads as instant but never blinks harshly. */
+.panel{ display:none; animation:none }
+.panel.active{ display:block; animation:panelin .12s ease-out both }
+@keyframes panelin{ from{opacity:.4} to{opacity:1} }
+/* category switching gets the same instant treatment (no per-row animation) */
+.cat{ animation:none !important }
+/* keep the two functional signals (they're status, not decoration, and both are opacity-only) */
+.nav-item .dot{ animation:navpulse 1.6s ease-in-out infinite !important }
+/* smooth wheel/scroll in the one scroll region, and stop scroll chaining to the window */
+.stage{ overscroll-behavior:contain; scroll-behavior:smooth }
+.console{ overscroll-behavior:contain }
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{ animation:none !important; transition:none !important; scroll-behavior:auto !important }
+}
