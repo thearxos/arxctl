@@ -299,6 +299,22 @@
       </div>
       <p class="dim" style="font-size:.82rem;margin-top:10px">WebRTC cannot leak your real IP even behind a transparent proxy, the browsers' own DNS-over-HTTPS is turned off so lookups follow anond's Tor-pinned resolver instead of going straight to a third party, and telemetry, prefetch, and tracking channels are closed. Re-applied automatically after each browser update; this button re-asserts it on demand.</p>
       <div class="handoff" id="bh-note" hidden></div>
+
+      <div class="weap-sub" style="margin-top:28px">HTTPS interception — for pentesting</div>
+      <div class="card row bh-card">
+        <span class="dot" id="mitm-dot"></span>
+        <div class="grow">
+          <b>Intercept TLS with Burp Suite / mitmproxy / ZAP</b>
+          <div class="dim" style="font-size:.82rem" id="mitm-detail">Trust your running proxy's CA so you can read HTTPS. Opt-in and fully reversible.</div>
+        </div>
+        <input type="text" id="mitm-proxy" value="127.0.0.1:8080" spellcheck="false" autocomplete="off" title="Your proxy's listen address" style="width:130px;font-size:.8rem" />
+        <button class="i2p-toggle" id="mitm-toggle" role="switch" aria-checked="false" title="Trust your proxy's CA in your browsers (reversible, no hardening changed)">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1L3 5v6c0 5.6 3.8 10.7 9 12 5.2-1.3 9-6.4 9-12V5l-9-4zm0 6a3 3 0 013 3v1h1v5H8v-5h1v-1a3 3 0 013-3zm0 2a1 1 0 00-1 1v1h2v-1a1 1 0 00-1-1z"/></svg>
+          <span>intercept</span>
+        </button>
+      </div>
+      <p class="dim" style="font-size:.82rem;margin-top:10px">Start Burp/ZAP (or mitmproxy) first, then flip this on: it adds <b>only that proxy's CA</b> to <b>your own</b> browser certificate stores and reads intercepted HTTPS. It weakens <b>none</b> of the hardening above — no pref is changed and no system trust is touched; pinned sites work because certificate pinning already sits at Firefox's own default level. Flip it off to remove the CA and restore the exact hardened trust state.</p>
+      <div class="handoff" id="mitm-note" hidden></div>
     </section>
 
     <section class="panel" id="p-vms">

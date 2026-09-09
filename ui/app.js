@@ -517,6 +517,7 @@ const ANON_UI = {
 loaders.privacy = async () => {
   await paintAnon();
   paintBrowserHardening();
+  paintMitm();
   paintOnion();
   clearInterval(anonTimer);
   anonTimer = setInterval(() => { if ($('#p-privacy').classList.contains('active')) { paintAnon(); paintOnion(); } else clearInterval(anonTimer); }, 2000);
@@ -566,6 +567,25 @@ async function paintBrowserHardening() {
     detail.textContent = 'No supported browser found (Firefox, Waterfox, or Brave).';
   }
   $('#btn-browser-harden').disabled = !found.length;
+}
+// HTTPS-interception toggle (Burp/mitmproxy/ZAP). Reflects the arxos-browser-mitm helper state;
+// opt-in and reversible, changes no hardening.
+async function paintMitm() {
+  const t = $('#mitm-toggle'), dot = $('#mitm-dot'), detail = $('#mitm-detail');
+  if (!t) return;
+  let st = 'unavailable'; try { st = await invoke('browser_mitm_status'); } catch {}
+  if (st === 'unavailable') {
+    t.disabled = true; t.setAttribute('aria-checked', 'false'); dot.className = 'dot off';
+    detail.textContent = 'Interception helper not installed on this system.';
+    return;
+  }
+  const on = st === 'on';
+  t.disabled = false;
+  t.setAttribute('aria-checked', on ? 'true' : 'false');
+  dot.className = 'dot ' + (on ? 'on' : 'off');
+  detail.textContent = on
+    ? 'ON — your proxy CA is trusted in your browsers. Flip off to remove it.'
+    : "Trust your running proxy's CA so you can read HTTPS. Opt-in and fully reversible.";
 }
 let lastExitIp = '';
 async function paintAnon() {
@@ -646,6 +666,25 @@ async function runAnond(action, label) {
   $('#anon-newid').addEventListener('click', () => runAnond('new-identity', 'A new identity'));
   $('#btn-browser-harden').addEventListener('click', () =>
     handoff($('#bh-note'), 'browser_harden', {}, 'Browser hardening'));
+
+  // HTTPS-interception toggle: enable/disable Burp/mitmproxy CA trust in the user's browsers.
+  const mitm = $('#mitm-toggle');
+  if (mitm) mitm.addEventListener('click', async () => {
+    if (mitm.disabled) return;
+    const turningOn = mitm.getAttribute('aria-checked') !== 'true';
+    const proxy = ($('#mitm-proxy')?.value || '127.0.0.1:8080').trim();
+    const note = $('#mitm-note');
+    mitm.disabled = true;
+    if (note) { note.hidden = false; note.innerHTML = `<div class="launched"><span class="spark"></span>${turningOn ? 'Enabling interception…' : 'Removing interception…'}</div>`; }
+    try {
+      const msg = await invoke('browser_mitm_set', { on: turningOn, proxy });
+      if (note) note.innerHTML = `<div class="launched">${msg}</div>`;
+    } catch (e) {
+      if (note) note.innerHTML = `<div class="launched err">${String(e)}</div>`;
+    }
+    mitm.disabled = false;
+    paintMitm();
+  });
 
   // arxonion app-isolation: the toggle flips the persistent Tor-only namespace on/off; the
   // isolated terminal opens a shell where every command routes through Tor.

@@ -553,6 +553,45 @@ fn browser_status() -> Vec<String> {
     found
 }
 
+// HTTPS-interception toggle for pentesting (Burp Suite / mitmproxy / ZAP). Runs the shipped
+// arxos-browser-mitm helper AS THE USER (it only touches this user's own browser certificate
+// stores, never a system store). It weakens no hardening: it adds only the operator's chosen
+// proxy CA and `off` removes it. Interception works on pinned sites because the browsers already
+// ship security.cert_pinning.enforcement_level = 1 (Firefox's own default).
+#[tauri::command]
+fn browser_mitm_status() -> String {
+    match std::process::Command::new("arxos-browser-mitm").arg("status").output() {
+        Ok(o) => {
+            let s = String::from_utf8_lossy(&o.stdout);
+            if s.contains("ACTIVE") { "on".into() }
+            else if s.contains("OFF everywhere") || s.contains(" off ") { "off".into() }
+            else { "off".into() }
+        }
+        Err(_) => "unavailable".into(),
+    }
+}
+
+#[tauri::command]
+fn browser_mitm_set(on: bool, proxy: Option<String>) -> Result<String, String> {
+    let mut cmd = std::process::Command::new("arxos-browser-mitm");
+    if on {
+        let p = proxy.unwrap_or_default();
+        let p = p.trim();
+        cmd.arg("on");
+        if !p.is_empty() { cmd.args(["--from-proxy", p]); } else { cmd.args(["--from-proxy", "127.0.0.1:8080"]); }
+    } else {
+        cmd.arg("off");
+    }
+    let out = cmd.output().map_err(|e| format!("arxos-browser-mitm not available: {e}"))?;
+    let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if out.status.success() {
+        Ok(if stdout.is_empty() { "done".into() } else { stdout })
+    } else {
+        let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        Err(if err.is_empty() { stdout } else { err })
+    }
+}
+
 #[tauri::command]
 fn system_update() -> Result<(), String> { launch_arx(&["upgrade"]) }
 #[tauri::command]
@@ -571,7 +610,7 @@ fn kernel_remove(flavor: String) -> Result<(), String> {
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
-            system_info, storage_info, updates_count, updates_count_cached, updates_breakdown, updates_list, news_list, kernels_list, kernels_manifest, weapons_categories, arsenal_totals, arsenal_totals_refresh, weapons_menu_rebuild, browser_harden, browser_status, services_status,
+            system_info, storage_info, updates_count, updates_count_cached, updates_breakdown, updates_list, news_list, kernels_list, kernels_manifest, weapons_categories, arsenal_totals, arsenal_totals_refresh, weapons_menu_rebuild, browser_harden, browser_status, browser_mitm_status, browser_mitm_set, services_status,
             weapons_install, weapons_remove, weapons_browse, system_update, sync_databases, kernel_install, kernel_remove,
             anond_status, anond_action, anond_action_streamed, anond_exit_location,
             arxonion_status, arxonion_toggle, arxonion_shell, arxonion_launch_browser, arxonion_run_app,
